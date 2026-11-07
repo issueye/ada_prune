@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
 )
 
 // streamChunks is the canonical stream every round-trip test starts from.

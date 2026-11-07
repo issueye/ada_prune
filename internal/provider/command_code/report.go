@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/provider"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/provider"
 )
 
 // Reporting cadence. The upstream expects a credential to announce its device

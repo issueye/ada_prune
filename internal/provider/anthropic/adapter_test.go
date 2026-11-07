@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
-	"github.com/learningdog1/ada_proxy/internal/logging"
-	"github.com/learningdog1/ada_proxy/internal/provider"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/logging"
+	"github.com/learningdog1/ada_prune/internal/provider"
 )
 
 func newAdapter(t *testing.T) *Adapter {

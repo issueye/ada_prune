@@ -11,12 +11,12 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/config"
-	"github.com/learningdog1/ada_proxy/internal/logging"
-	"github.com/learningdog1/ada_proxy/internal/paths"
-	"github.com/learningdog1/ada_proxy/internal/provider"
-	"github.com/learningdog1/ada_proxy/internal/store"
-	"github.com/learningdog1/ada_proxy/internal/version"
+	"github.com/learningdog1/ada_prune/internal/config"
+	"github.com/learningdog1/ada_prune/internal/logging"
+	"github.com/learningdog1/ada_prune/internal/paths"
+	"github.com/learningdog1/ada_prune/internal/provider"
+	"github.com/learningdog1/ada_prune/internal/store"
+	"github.com/learningdog1/ada_prune/internal/version"
 )
 
 // Error carries an HTTP status so the transport adapter can answer correctly.

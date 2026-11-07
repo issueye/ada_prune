@@ -40,7 +40,7 @@
   ├── 模型          /models           模型目录与可路由性
   ├── 路由模型      /route-models     跨供应商模型聚合，对外只暴露一个 ID
   ├── 凭据          /credentials      上游密钥/账号池
-  └── 客户端密钥    /keys             sk-adp-* 与额度
+  └── 客户端密钥    /keys             sk-prune-* 与额度
 设置
   ├── 端点          /endpoints        自定义入口（内置三条只读）
   ├── 设备指纹      /fingerprints     仅当存在需要指纹的适配器时显示
@@ -353,7 +353,7 @@ API 类的协议与适配器映射由网关决定，界面不暴露 kind：
 
 本期不做。若未来需要，方案已预留在 [02 §8](02-architecture.md)：
 
-- `web/`（React + Vite）构建产物 `embed.FS` 内嵌进 `adp-server`；
+- `web/`（React + Vite）构建产物 `embed.FS` 内嵌进 `prune-server`；
 - 控制面沿用 [05](05-api-contract.md) 同一套 `/admin/api/*`，UI 只是另一个消费者；
 - 桌面原生 UI 与 Web UI 并存，共用业务层（`internal/admin`）。
 

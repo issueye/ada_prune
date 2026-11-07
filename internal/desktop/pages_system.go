@@ -74,7 +74,7 @@ func (s *uiState) aboutPage(c *ui.Context) {
 		ui.Column(c).FillWidth().Padding(spXL, spL, spL, spXL).Gap(spM).Children(func() {
 			s.errorLine(c)
 
-			panel(c, "AdaProxy", func() {
+			panel(c, "AdaPrune", func() {
 				rows := [][2]string{
 					{"版本", s.status2.Version},
 					{"数据目录", s.status2.DataDir},

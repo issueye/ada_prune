@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
 )
 
 func init() { register(openAIChatCodec{}) }

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/admin"
-	"github.com/learningdog1/ada_proxy/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/admin"
+	"github.com/learningdog1/ada_prune/internal/gateway"
 )
 
 func TestParseHeaders(t *testing.T) {

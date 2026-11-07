@@ -17,7 +17,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
 )
 
 // Codec converts one protocol to and from the canonical IR.

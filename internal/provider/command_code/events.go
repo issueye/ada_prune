@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
 )
 
 // ErrTruncated means the upstream ended the stream without a finish event, or

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway"
 )
 
 // planTotalCredits maps a plan id to its monthly allowance. Unknown plans report

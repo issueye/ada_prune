@@ -15,14 +15,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/admin"
-	"github.com/learningdog1/ada_proxy/internal/api/adminhttp"
-	"github.com/learningdog1/ada_proxy/internal/config"
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
-	"github.com/learningdog1/ada_proxy/internal/httpkit"
-	"github.com/learningdog1/ada_proxy/internal/logging"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/admin"
+	"github.com/learningdog1/ada_prune/internal/api/adminhttp"
+	"github.com/learningdog1/ada_prune/internal/config"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/httpkit"
+	"github.com/learningdog1/ada_prune/internal/logging"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // Options configures the server.

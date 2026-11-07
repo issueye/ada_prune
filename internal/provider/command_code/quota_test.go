@@ -3,7 +3,7 @@ package command_code
 import (
 	"testing"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway"
 )
 
 func TestClassifyCreditExhaustion(t *testing.T) {

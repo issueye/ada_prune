@@ -5,7 +5,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // ClientKeyInput is the create payload.

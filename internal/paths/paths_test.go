@@ -7,13 +7,13 @@ import (
 
 func TestResolveUsesEnvOverride(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("ADP_DATA_DIR", dir)
+	t.Setenv("PRUNE_DATA_DIR", dir)
 
 	got := Resolve("ignored")
 	if got.Data != dir {
 		t.Fatalf("Data = %q, want %q", got.Data, dir)
 	}
-	if got.DB != filepath.Join(dir, "adaproxy.db") {
+	if got.DB != filepath.Join(dir, "ada_prune.db") {
 		t.Fatalf("DB = %q", got.DB)
 	}
 	if got.SecretKey != filepath.Join(dir, ".secret.key") {
@@ -25,13 +25,13 @@ func TestResolveUsesEnvOverride(t *testing.T) {
 	if got.Logs != filepath.Join(dir, "logs") {
 		t.Fatalf("Logs = %q", got.Logs)
 	}
-	if got.LogFile != filepath.Join(dir, "logs", "adaproxy.log") {
+	if got.LogFile != filepath.Join(dir, "logs", "ada_prune.log") {
 		t.Fatalf("LogFile = %q", got.LogFile)
 	}
 }
 
 func TestResolvePrefersArgumentOverExecutable(t *testing.T) {
-	t.Setenv("ADP_DATA_DIR", "")
+	t.Setenv("PRUNE_DATA_DIR", "")
 	dir := t.TempDir()
 
 	got := Resolve(dir)

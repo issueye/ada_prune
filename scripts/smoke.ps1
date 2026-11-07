@@ -1,4 +1,4 @@
-# End-to-end smoke test for AdaProxy.
+# End-to-end smoke test for AdaPrune.
 #
 # Starts a fake Command Code upstream and the headless gateway on temporary
 # ports and a throwaway data directory, then walks the whole flow:
@@ -19,7 +19,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $root
 
-$dataDir = Join-Path ([System.IO.Path]::GetTempPath()) ("adaproxy-smoke-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
+$dataDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ada_prune-smoke-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
 New-Item -ItemType Directory -Force $dataDir | Out-Null
 
 $upstream = $null
@@ -42,11 +42,11 @@ function Step([string]$label) {
 }
 
 try {
-    Write-Host "AdaProxy smoke test" -ForegroundColor Cyan
+    Write-Host "AdaPrune smoke test" -ForegroundColor Cyan
 
     Step "building binaries"
-    & go build -o (Join-Path $dataDir "adp-server.exe") ./cmd/adp-server
-    if ($LASTEXITCODE -ne 0) { throw "build adp-server failed" }
+    & go build -o (Join-Path $dataDir "prune-server.exe") ./cmd/prune-server
+    if ($LASTEXITCODE -ne 0) { throw "build prune-server failed" }
     & go build -o (Join-Path $dataDir "mockupstream.exe") ./tools/mockupstream
     if ($LASTEXITCODE -ne 0) { throw "build mockupstream failed" }
 
@@ -58,9 +58,9 @@ try {
     }
 
     Step "starting gateway on :$GatewayPort"
-    $env:ADP_DATA_DIR = $dataDir
-    $env:ADP_PORT = "$GatewayPort"
-    $gateway = Start-Process -FilePath (Join-Path $dataDir "adp-server.exe") `
+    $env:PRUNE_DATA_DIR = $dataDir
+    $env:PRUNE_PORT = "$GatewayPort"
+    $gateway = Start-Process -FilePath (Join-Path $dataDir "prune-server.exe") `
         -PassThru -WindowStyle Hidden -RedirectStandardError (Join-Path $dataDir "server.err.log")
     if (-not (Wait-Http "http://127.0.0.1:$GatewayPort/health")) {
         throw "the gateway did not start; see $dataDir/server.err.log"
@@ -99,7 +99,7 @@ try {
     $key = Invoke-RestMethod -Uri "$admin/client-keys" -Method Post -ContentType "application/json" -Body (@{
         name = "smoke"
     } | ConvertTo-Json)
-    if (-not $key.token.StartsWith("sk-adp-")) { throw "the client key does not have the expected prefix" }
+    if (-not $key.token.StartsWith("sk-prune-")) { throw "the client key does not have the expected prefix" }
 
     Step "calling /v1/chat/completions (non-streaming)"
     $answer = Invoke-RestMethod -Uri "$base/v1/chat/completions" -Method Post `
@@ -154,7 +154,7 @@ try {
 finally {
     if ($gateway) { Stop-Process -Id $gateway.Id -Force -ErrorAction SilentlyContinue }
     if ($upstream) { Stop-Process -Id $upstream.Id -Force -ErrorAction SilentlyContinue }
-    Remove-Item Env:\ADP_DATA_DIR, Env:\ADP_PORT -ErrorAction SilentlyContinue
+    Remove-Item Env:\PRUNE_DATA_DIR, Env:\PRUNE_PORT -ErrorAction SilentlyContinue
     if (-not $Keep) {
         Start-Sleep -Milliseconds 300
         Remove-Item -Recurse -Force $dataDir -ErrorAction SilentlyContinue

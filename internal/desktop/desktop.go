@@ -8,7 +8,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
-	"github.com/learningdog1/ada_proxy/internal/app"
+	"github.com/learningdog1/ada_prune/internal/app"
 )
 
 // Run starts the desktop application and blocks until it quits.
@@ -61,7 +61,7 @@ func Run() error {
 
 	newWindow := func() *mygo.Window {
 		w := mygo.NewWindow(mygo.WindowOptions{
-			Title:  "AdaProxy",
+			Title:  "AdaPrune",
 			Width:  1280,
 			Height: 860,
 			// Room for the sidebar and two card columns.

@@ -6,8 +6,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"github.com/learningdog1/ada_proxy/internal/admin"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/admin"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // dashboardPage is the landing page: headline numbers, the last day's traffic and

@@ -4,7 +4,7 @@
 // finish event carrying usage, and a 402 for a credential listed in -reject.
 //
 //	go run ./tools/mockupstream -addr 127.0.0.1:4099
-//	CC_API_BASE=http://127.0.0.1:4099 go run ./cmd/adp-desktop
+//	CC_API_BASE=http://127.0.0.1:4099 go run ./cmd/prune-desktop
 package main
 
 import (

@@ -10,7 +10,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"github.com/learningdog1/ada_proxy/internal/admin"
+	"github.com/learningdog1/ada_prune/internal/admin"
 )
 
 // TestModelCardActions pins the card grid's interaction model: every card

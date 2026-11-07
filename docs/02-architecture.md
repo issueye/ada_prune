@@ -6,7 +6,7 @@
 | 版本 | v1.0 |
 | 日期 | 2026-11-07 |
 | 上游 | [01 需求](01-requirements.md) · 契约以 [05](05-api-contract.md) 为准 |
-| 模块路径 | 仓库根，Go module `github.com/learningdog1/ada_proxy` |
+| 模块路径 | 仓库根，Go module `github.com/learningdog1/ada_prune` |
 
 ---
 
@@ -20,13 +20,13 @@
 - 交付形态：桌面（mygo 原生 UI）+ 无头，两个二进制，共享 `internal/app`。
 
 > 本项目是**纯重写**：不继承任何历史 schema / 配置键 / HTTP 路径 / 环境变量。
-> 参考项目（`ada_proxy - 副本` / `ada_prune` 与 `aluka_cloud/llm`）只提供**设计知识**，
+> 参考项目（`ada_proxy - 副本` 与 `aluka_cloud/llm`）只提供**设计知识**，
 > 结论沉淀在 [03](03-provider-adapter.md) / [04](04-protocol-conversion.md)。
 
 ## 2. 分层与依赖方向
 
 ```
-cmd/adp-desktop (mygo 壳)      cmd/adp-server (headless)
+cmd/prune-desktop (mygo 壳)      cmd/prune-server (headless)
         │                              │
         └──────────┬───────────────────┘
                    ▼
@@ -70,7 +70,7 @@ Request → Recover → RequestID → Logger → CORS → AdminAuth(token?)
 ### 3.2 数据面
 
 ```
-POST /v1/chat/completions   Authorization: Bearer sk-adp-...
+POST /v1/chat/completions   Authorization: Bearer sk-prune-...
   → Recover → RequestID → Logger → CORS → Inflight 准入
   → api.DataPlane:
        1) 端点解析（内置或自定义 path → inbound_protocol + target）
@@ -128,7 +128,7 @@ adapter.Do → 200 NDJSON
 }
 ```
 
-- 环境变量：`ADP_` + 路径大写下划线（如 `ADP_DATA_DIR`、`ADP_PORT`、`ADP_LOG_LEVEL`）。
+- 环境变量：`PRUNE_` + 路径大写下划线（如 `PRUNE_DATA_DIR`、`PRUNE_PORT`、`PRUNE_LOG_LEVEL`）。
 - 供应商私有参数（原 CC 的 `apiBase` / `zdr` / `cliMode` / `fingerprintSalt` / `deviceProjectDir` 等）
   **不属于全局配置**，一律落在 `providers.adapter_config` JSON 里，由适配器自己定义与校验。
 - `Validate()`：`port ∈ [1,65535]`、`maxInflight ≥ 0`、`maxBodyMB > 0`、`streamIdleMs > 0`。
@@ -137,7 +137,7 @@ adapter.Do → 200 NDJSON
 
 ```go
 func New(opts Options) (*App, error) {
-    dirs  := paths.Resolve(opts.DataDir)          // ADP_DATA_DIR > 传入 > 可执行目录/data
+    dirs  := paths.Resolve(opts.DataDir)          // PRUNE_DATA_DIR > 传入 > 可执行目录/data
     cfg   := config.Open(dirs)                    // JSON 快照 + ENV 覆盖
     log   := logging.New(cfg.LogFile)
     box   := secretbox.Open(dirs.SecretKey())     // 缺失则生成 32B key (0600)
@@ -228,14 +228,14 @@ type Adapter interface {
 ## 8. 目录结构
 
 ```
-ada_proxy/
-├── go.mod                     module github.com/learningdog1/ada_proxy
+ada_prune/
+├── go.mod                     module github.com/learningdog1/ada_prune
 ├── mygo.json                  桌面打包描述
 ├── README.md  AGENTS.md  LICENSE  NOTICE
 ├── docs/                      01..07 + screenshots/
 ├── cmd/
-│   ├── adp-desktop/main.go    mygo 窗口 + 托盘
-│   └── adp-server/main.go     无头服务
+│   ├── prune-desktop/main.go    mygo 窗口 + 托盘
+│   └── prune-server/main.go     无头服务
 ├── internal/
 │   ├── app/                   组装根 + 后台任务
 │   ├── api/                   HTTP 路由、数据面入口、管理面适配器、CORS、准入
@@ -279,7 +279,7 @@ ada_proxy/
 | 里程碑 | 内容 | DoD |
 | :--- | :--- | :--- |
 | **P0 设计** | 文档集 + 契约冻结 | 评审通过 |
-| **P1 骨架** | module、`paths/config/secretbox/store/logging`、`gateway/ir`、`app`、`api` 骨架 | `adp-server` 可启动，`/health` OK，建表成功 |
+| **P1 骨架** | module、`paths/config/secretbox/store/logging`、`gateway/ir`、`app`、`api` 骨架 | `prune-server` 可启动，`/health` OK，建表成功 |
 | **P2 适配器层** | `Adapter` 接口 + registry + `command_code` 全部实现 | 金标准通过；IR 层六类事件跑通 |
 | **P3 控制面** | 供应商/凭据/模型/路由模型/客户端密钥/端点/设置 | 契约 §2 每条路径有测试 |
 | **P4 协议内核** | IR + 三 Codec + 9 组合矩阵 | 转换矩阵全绿 |

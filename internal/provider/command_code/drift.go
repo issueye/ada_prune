@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway"
 )
 
 // DriftStatus reports whether the CLI version this adapter implements is still

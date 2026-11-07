@@ -18,7 +18,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/learningdog1/ada_proxy/internal/secretbox"
+	"github.com/learningdog1/ada_prune/internal/secretbox"
 )
 
 // ErrNotFound is returned when a row does not exist.

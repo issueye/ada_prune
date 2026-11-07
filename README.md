@@ -1,8 +1,8 @@
 <p align="left">
-  <img src="docs/screenshots/logo.png" width="96" alt="AdaProxy">
+  <img src="docs/screenshots/logo.png" width="96" alt="AdaPrune">
 </p>
 
-# AdaProxy
+# AdaPrune
 
 **通用型本地 AI 网关**：一个单可执行文件，一张桌面原生界面，把多种上游 AI 供应商
 统一成一套 OpenAI / Anthropic 兼容端点。
@@ -19,7 +19,7 @@
         │  OpenAI Chat · OpenAI Responses · Anthropic Messages
         ▼
 ┌───────────────────────────────────────────────┐
-│  AdaProxy（本机单进程）                        │
+│  AdaPrune（本机单进程）                        │
 │                                               │
 │   协议内核（IR，9 组转换）                      │
 │        │                                      │
@@ -46,7 +46,7 @@
 | :-: | :--- | :--- |
 | 1 | **供应商管理** | 多供应商（CC / OpenAI 兼容 / Anthropic / 自定义），BaseURL、超时、代理、附加头、**适配器动态配置**、连通性测试、模型发现、运行时状态面板 |
 | 2 | **模型管理** | 对外名与上游名解耦、上游协议、价格、上下文、能力位、可路由判定、批量导入 |
-| 3 | **密钥管理** | 上游凭据（多账号轮转、AES-256-GCM 加密、批量/CLI 导入、pin）+ 客户端密钥（`sk-adp-*`、额度、模型白名单、IP 白名单、轮换） |
+| 3 | **密钥管理** | 上游凭据（多账号轮转、AES-256-GCM 加密、批量/CLI 导入、pin）+ 客户端密钥（`sk-prune-*`、额度、模型白名单、IP 白名单、轮换） |
 | 4 | **协议转换** | 3 编解码器 + IR，9 组方向互转，覆盖请求 / 非流式 / 流式 |
 | 5 | **额度与轮转** | 信用耗尽落库换号；窗口到顶内存阻塞到期自恢复；瞬时限速不轮转 |
 | 6 | **指纹抽象** | `FingerprintPolicy` 通用接口；CC 实现决定论伪设备 + 周期性上报 |
@@ -93,23 +93,23 @@
 - **HTTP**：标准库 `net/http` + `ServeMux`，无 Web 框架
 - **桌面**：[mygo](https://github.com/egoist/mygo) v0.7.4 原生 UI（Go 自绘）
 - **加密**：AES-256-GCM（`data/.secret.key`）
-- **交付**：桌面（`AdaProxy.exe`）与无头（`adp-server.exe`）两个单可执行文件
+- **交付**：桌面（`AdaPrune.exe`）与无头（`prune-server.exe`）两个单可执行文件
 
 ## 快速开始
 
 ```bash
 # 无头（默认 127.0.0.1:3050，数据在可执行文件旁的 data/）
-go run ./cmd/adp-server
+go run ./cmd/prune-server
 
 # 桌面（原生窗口 + 进程内网关）
-go run ./cmd/adp-desktop
+go run ./cmd/prune-desktop
 
 # 指定数据目录与端口
-ADP_DATA_DIR=./data ADP_PORT=3999 go run ./cmd/adp-server
+PRUNE_DATA_DIR=./data PRUNE_PORT=3999 go run ./cmd/prune-server
 ```
 
 首启会在数据目录生成 `config.json`、`.secret.key`（AES-256-GCM 主密钥）、
-`adaproxy.db`（SQLite）与 `logs/`。
+`ada_prune.db`（SQLite）与 `logs/`。
 
 ```bash
 curl http://127.0.0.1:3050/health
@@ -131,8 +131,8 @@ powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Plain
 
 | 文件 | 说明 |
 | :--- | :--- |
-| `build/windows-amd64/AdaProxy.exe` | 桌面应用，**GUI 子系统**（脚本会读 PE 头校验，仍是控制台就报错），带图标、版本信息与 DPI manifest |
-| `build/windows-amd64/adp-server.exe` | 无头服务，控制台程序 |
+| `build/windows-amd64/AdaPrune.exe` | 桌面应用，**GUI 子系统**（脚本会读 PE 头校验，仍是控制台就报错），带图标、版本信息与 DPI manifest |
+| `build/windows-amd64/prune-server.exe` | 无头服务，控制台程序 |
 
 桌面应用与无头服务共享同一份数据目录格式与业务层，区别只在于是否开窗。
 
@@ -161,12 +161,12 @@ powershell -ExecutionPolicy Bypass -File scripts/smoke.ps1
 ```bash
 # OpenAI 兼容
 curl http://127.0.0.1:3050/v1/chat/completions \
-  -H 'Authorization: Bearer sk-adp-xxxx' -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer sk-prune-xxxx' -H 'Content-Type: application/json' \
   -d '{"model":"deepseek/deepseek-v4-flash","messages":[{"role":"user","content":"你好"}]}'
 
 # Anthropic 兼容（Claude Code 等）
 export ANTHROPIC_BASE_URL=http://127.0.0.1:3050
-export ANTHROPIC_AUTH_TOKEN=sk-adp-xxxx
+export ANTHROPIC_AUTH_TOKEN=sk-prune-xxxx
 ```
 
 ## 测试

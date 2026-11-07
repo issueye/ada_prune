@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // stateStore adapts the store's provider_state table to gateway.StateStore.

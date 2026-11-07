@@ -4,9 +4,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // maxNameLen bounds human-facing names so a paste cannot bloat the table.

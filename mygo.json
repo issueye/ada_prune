@@ -1,9 +1,9 @@
 {
-  "name": "AdaProxy",
-  "slug": "ada-proxy",
-  "identifier": "ai.adacode.proxy.desktop",
+  "name": "AdaPrune",
+  "slug": "ada-prune",
+  "identifier": "ai.adacode.prune.desktop",
   "version": "0.1.0",
-  "main": "./cmd/adp-desktop",
+  "main": "./cmd/prune-desktop",
   "icon": "resources/icon.png",
   "out": "build"
 }

@@ -1,11 +1,11 @@
-# Builds AdaProxy for Windows.
+# Builds AdaPrune for Windows.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Plain
 #
 # Produces:
-#   build/windows-amd64/AdaProxy.exe        desktop app (GUI subsystem, no console)
-#   build/windows-amd64/adp-server.exe      headless service (console)
+#   build/windows-amd64/AdaPrune.exe        desktop app (GUI subsystem, no console)
+#   build/windows-amd64/prune-server.exe      headless service (console)
 #
 # The desktop app must not open a console window, so it is built with
 # -H=windowsgui and a manifest, and the script reads the PE header afterwards to
@@ -29,10 +29,10 @@ try {
     if ($candidate) { $commit = $candidate }
 } catch { }
 
-$module = "github.com/learningdog1/ada_proxy"
+$module = "github.com/learningdog1/ada_prune"
 $ldbase = "-s -w -X $module/internal/version.Version=$Version -X $module/internal/version.Commit=$commit"
 
-Write-Host "Building AdaProxy $Version ($commit) for windows/$Arch" -ForegroundColor Cyan
+Write-Host "Building AdaPrune $Version ($commit) for windows/$Arch" -ForegroundColor Cyan
 
 $out = Join-Path $root "build/windows-$Arch"
 New-Item -ItemType Directory -Force $out | Out-Null
@@ -40,12 +40,12 @@ New-Item -ItemType Directory -Force $out | Out-Null
 # Desktop app first: the mygo CLI owns build/windows-<arch> and clears it, so the
 # headless binary must be written after it, not before.
 if ($Plain) {
-    Write-Host "  AdaProxy.exe (plain build)" -ForegroundColor DarkGray
+    Write-Host "  AdaPrune.exe (plain build)" -ForegroundColor DarkGray
     & go build -trimpath -tags mygo_noinspector -ldflags "$ldbase -H=windowsgui" `
-        -o (Join-Path $out "AdaProxy.exe") ./cmd/adp-desktop
-    if ($LASTEXITCODE -ne 0) { throw "go build adp-desktop failed ($LASTEXITCODE)" }
+        -o (Join-Path $out "AdaPrune.exe") ./cmd/prune-desktop
+    if ($LASTEXITCODE -ne 0) { throw "go build prune-desktop failed ($LASTEXITCODE)" }
 } else {
-    Write-Host "  AdaProxy.exe (mygo build: icon, manifest, version)" -ForegroundColor DarkGray
+    Write-Host "  AdaPrune.exe (mygo build: icon, manifest, version)" -ForegroundColor DarkGray
     # The mygo CLI reads mygo.json for the name, the icon and the entry point.
     # Not $args: PowerShell reserves that name for the script arguments.
     $mygoArgs = @("tool", "mygo", "build", "-platform", "windows/$Arch", "-skip-installer")
@@ -55,16 +55,16 @@ if ($Plain) {
 }
 
 # Headless service: a console program, which is what a server wants.
-Write-Host "  adp-server.exe" -ForegroundColor DarkGray
-& go build -trimpath -ldflags $ldbase -o (Join-Path $out "adp-server.exe") ./cmd/adp-server
-if ($LASTEXITCODE -ne 0) { throw "go build adp-server failed ($LASTEXITCODE)" }
+Write-Host "  prune-server.exe" -ForegroundColor DarkGray
+& go build -trimpath -ldflags $ldbase -o (Join-Path $out "prune-server.exe") ./cmd/prune-server
+if ($LASTEXITCODE -ne 0) { throw "go build prune-server failed ($LASTEXITCODE)" }
 
 # Prove the desktop binary is a GUI program: subsystem 2, not 3.
-$exe = Join-Path $out "AdaProxy.exe"
+$exe = Join-Path $out "AdaPrune.exe"
 if (-not (Test-Path $exe)) {
     # The mygo CLI names its output from mygo.json; fall back to any new exe.
     $exe = Get-ChildItem (Join-Path $root "build") -Recurse -Filter "*.exe" |
-        Where-Object { $_.Name -notmatch "setup|Setup|adp-server" } |
+        Where-Object { $_.Name -notmatch "setup|Setup|prune-server" } |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1 -ExpandProperty FullName
 }
@@ -83,7 +83,7 @@ $kind = switch ($subsystem) {
 Write-Host ""
 Write-Host ("  {0}" -f $exe.Replace("$root\", "")) -ForegroundColor Green
 Write-Host ("  {0:N1} MB - subsystem: {1}" -f ((Get-Item $exe).Length / 1MB), $kind)
-$server = Join-Path $out "adp-server.exe"
+$server = Join-Path $out "prune-server.exe"
 if (Test-Path $server) {
     Write-Host ("  {0}" -f $server.Replace("$root\", "")) -ForegroundColor Green
     Write-Host ("  {0:N1} MB - headless" -f ((Get-Item $server).Length / 1MB))

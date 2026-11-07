@@ -6,7 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway"
 )
 
 // Spacing scale, in DIPs.

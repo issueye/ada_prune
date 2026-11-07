@@ -88,18 +88,18 @@ func Defaults() Snapshot {
 // envKeys maps configuration keys to the environment variables that pin them.
 // The order is the documented order, used when reporting pinned keys.
 var envKeys = []struct{ Key, Env string }{
-	{"port", "ADP_PORT"},
-	{"host", "ADP_HOST"},
-	{"logFile", "ADP_LOG_FILE"},
-	{"logLevel", "ADP_LOG_LEVEL"},
-	{"logRetentionDays", "ADP_LOG_RETENTION_DAYS"},
-	{"defaultModel", "ADP_DEFAULT_MODEL"},
-	{"allowAnonymous", "ADP_ALLOW_ANONYMOUS"},
-	{"maxBodyMB", "ADP_MAX_BODY_MB"},
-	{"streamIdleMs", "ADP_STREAM_IDLE_MS"},
-	{"nonStreamIdleMs", "ADP_NONSTREAM_IDLE_MS"},
-	{"maxInflight", "ADP_MAX_INFLIGHT"},
-	{"keepAliveTimeoutMs", "ADP_KEEPALIVE_TIMEOUT_MS"},
+	{"port", "PRUNE_PORT"},
+	{"host", "PRUNE_HOST"},
+	{"logFile", "PRUNE_LOG_FILE"},
+	{"logLevel", "PRUNE_LOG_LEVEL"},
+	{"logRetentionDays", "PRUNE_LOG_RETENTION_DAYS"},
+	{"defaultModel", "PRUNE_DEFAULT_MODEL"},
+	{"allowAnonymous", "PRUNE_ALLOW_ANONYMOUS"},
+	{"maxBodyMB", "PRUNE_MAX_BODY_MB"},
+	{"streamIdleMs", "PRUNE_STREAM_IDLE_MS"},
+	{"nonStreamIdleMs", "PRUNE_NONSTREAM_IDLE_MS"},
+	{"maxInflight", "PRUNE_MAX_INFLIGHT"},
+	{"keepAliveTimeoutMs", "PRUNE_KEEPALIVE_TIMEOUT_MS"},
 }
 
 // SaveResult reports what Save did with the requested patch.
@@ -361,21 +361,21 @@ func applyEnv(s Snapshot) Snapshot {
 		}
 	}
 
-	setInt("ADP_PORT", &s.Port)
-	setStr("ADP_HOST", &s.Host)
-	setStr("ADP_LOG_FILE", &s.LogFile)
-	setStr("ADP_LOG_LEVEL", &s.LogLevel)
-	setInt("ADP_LOG_RETENTION_DAYS", &s.LogRetentionDays)
-	setStr("ADP_DEFAULT_MODEL", &s.DefaultModel)
-	setBool("ADP_ALLOW_ANONYMOUS", &s.AllowAnonymous)
-	setInt64("ADP_MAX_BODY_MB", &s.MaxBodyMB)
-	setInt64("ADP_STREAM_IDLE_MS", &s.StreamIdleMs)
-	setInt64("ADP_NONSTREAM_IDLE_MS", &s.NonStreamIdleMs)
-	setInt64("ADP_MAX_INFLIGHT", &s.MaxInflight)
-	setInt64("ADP_KEEPALIVE_TIMEOUT_MS", &s.KeepAliveTimeoutMs)
-	setInt64("ADP_MODEL_REFRESH_MS", &s.ModelRefreshIntervalMs)
-	setInt64("ADP_ACCOUNT_USAGE_REFRESH_MS", &s.AccountUsageRefreshMs)
-	setInt64("ADP_DRIFT_CHECK_MS", &s.DriftCheckIntervalMs)
+	setInt("PRUNE_PORT", &s.Port)
+	setStr("PRUNE_HOST", &s.Host)
+	setStr("PRUNE_LOG_FILE", &s.LogFile)
+	setStr("PRUNE_LOG_LEVEL", &s.LogLevel)
+	setInt("PRUNE_LOG_RETENTION_DAYS", &s.LogRetentionDays)
+	setStr("PRUNE_DEFAULT_MODEL", &s.DefaultModel)
+	setBool("PRUNE_ALLOW_ANONYMOUS", &s.AllowAnonymous)
+	setInt64("PRUNE_MAX_BODY_MB", &s.MaxBodyMB)
+	setInt64("PRUNE_STREAM_IDLE_MS", &s.StreamIdleMs)
+	setInt64("PRUNE_NONSTREAM_IDLE_MS", &s.NonStreamIdleMs)
+	setInt64("PRUNE_MAX_INFLIGHT", &s.MaxInflight)
+	setInt64("PRUNE_KEEPALIVE_TIMEOUT_MS", &s.KeepAliveTimeoutMs)
+	setInt64("PRUNE_MODEL_REFRESH_MS", &s.ModelRefreshIntervalMs)
+	setInt64("PRUNE_ACCOUNT_USAGE_REFRESH_MS", &s.AccountUsageRefreshMs)
+	setInt64("PRUNE_DRIFT_CHECK_MS", &s.DriftCheckIntervalMs)
 	return s
 }
 

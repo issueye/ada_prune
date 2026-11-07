@@ -45,8 +45,8 @@ HTTP 状态：`400 / 401 / 403 / 404 / 409 / 500`。
 
 | 面 | 凭据 | 免鉴权 |
 | :--- | :--- | :--- |
-| 控制面 `/admin/api/*` | `Authorization: Bearer <ADP_ADMIN_TOKEN>` 或 `?token=` | 未设 token 时全放行（仅回环地址） |
-| 数据面 `/v1/*` | `Authorization: Bearer sk-adp-*` 或 `x-api-key` | `endpoint.auth_required=false` 或 `allowAnonymous=true` |
+| 控制面 `/admin/api/*` | `Authorization: Bearer <PRUNE_ADMIN_TOKEN>` 或 `?token=` | 未设 token 时全放行（仅回环地址） |
+| 数据面 `/v1/*` | `Authorization: Bearer sk-prune-*` 或 `x-api-key` | `endpoint.auth_required=false` 或 `allowAnonymous=true` |
 
 - 控制面写操作（非 GET/HEAD）校验 `Origin` 与 `Host` 同源；
 - token 比较使用常数时间比较；
@@ -329,13 +329,13 @@ HTTP 状态：`400 / 401 / 403 / 404 / 409 / 500`。
 | POST | `/admin/api/client-keys/{id}/reset-usage` | 用量归零 |
 
 ```json
-{ "id": 1, "name": "codex-local", "keyPrefix": "sk-adp-abcd…",
+{ "id": 1, "name": "codex-local", "keyPrefix": "sk-prune-abcd…",
   "enabled": true, "allowedModels": [], "allowedIps": ["127.0.0.1/32"],
   "quotaTokens": 0, "quotaUsed": 12000, "expiresAt": null,
   "lastUsedAt": 1793500000000, "createdAt": 1793500000000 }
 ```
 
-创建响应额外含：`{ "token": "sk-adp-<32hex>" }`（**仅此一次**）。
+创建响应额外含：`{ "token": "sk-prune-<32hex>" }`（**仅此一次**）。
 
 ### 2.8 端点
 
@@ -425,7 +425,7 @@ HTTP 状态：`400 / 401 / 403 / 404 / 409 / 500`。
 
 | 方向 | 头 | 说明 |
 | :--- | :--- | :--- |
-| 入 | `Authorization: Bearer sk-adp-*` | 客户端密钥（Anthropic 亦可 `x-api-key`） |
+| 入 | `Authorization: Bearer sk-prune-*` | 客户端密钥（Anthropic 亦可 `x-api-key`） |
 | 入 | `x-session-id` / `x-claude-code-session-id` / `session_id` | 会话线索（透传适配器） |
 | 入 | `x-cmd-zdr: 1` | ZDR（CC 适配器识别） |
 | 入 | `X-Request-ID` | 可选，缺省生成 |
@@ -495,18 +495,18 @@ data: {"id":9002,"ts":1793500001000,"endpoint":"/v1/messages","statusCode":200,.
 
 | 变量 | 说明 |
 | :--- | :--- |
-| `ADP_DATA_DIR` | 数据目录 |
-| `ADP_ADMIN_TOKEN` | 管理面令牌 |
-| `ADP_HOST` / `ADP_PORT` | 监听地址 |
-| `ADP_MAX_INFLIGHT` | 全局在途上限 |
-| `ADP_KEEPALIVE_TIMEOUT_MS` | keep-alive |
-| `ADP_MAX_BODY_MB` | 请求体上限 |
-| `ADP_STREAM_IDLE_MS` / `ADP_NONSTREAM_IDLE_MS` | 空闲看门狗 |
-| `ADP_DISABLE_DRIFT` / `ADP_DISABLE_ACCOUNT_USAGE` | 关闭后台任务（测试用） |
-| `ADP_LOG_LEVEL` / `ADP_LOG_FILE` | 日志级别与文件 |
+| `PRUNE_DATA_DIR` | 数据目录 |
+| `PRUNE_ADMIN_TOKEN` | 管理面令牌 |
+| `PRUNE_HOST` / `PRUNE_PORT` | 监听地址 |
+| `PRUNE_MAX_INFLIGHT` | 全局在途上限 |
+| `PRUNE_KEEPALIVE_TIMEOUT_MS` | keep-alive |
+| `PRUNE_MAX_BODY_MB` | 请求体上限 |
+| `PRUNE_STREAM_IDLE_MS` / `PRUNE_NONSTREAM_IDLE_MS` | 空闲看门狗 |
+| `PRUNE_DISABLE_DRIFT` / `PRUNE_DISABLE_ACCOUNT_USAGE` | 关闭后台任务（测试用） |
+| `PRUNE_LOG_LEVEL` / `PRUNE_LOG_FILE` | 日志级别与文件 |
 | `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | 上游出网代理（供应商级 `proxyUrl` 优先） |
 
-> 环境变量一律 `ADP_` 前缀，映射规则为路径大写下划线（`server.port` → `ADP_PORT`）。
+> 环境变量一律 `PRUNE_` 前缀，映射规则为路径大写下划线（`server.port` → `PRUNE_PORT`）。
 
 ## 6. 契约变更流程
 

@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
-	"github.com/learningdog1/ada_proxy/internal/httpkit"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/httpkit"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // builtinRoutes maps the three fixed paths to their inbound protocol.
@@ -89,7 +89,7 @@ func (s *Server) authenticate(r *http.Request, required bool) (*store.ClientKey,
 		return nil, &gateway.ClientError{
 			Status:  http.StatusUnauthorized,
 			Type:    "authentication_error",
-			Message: "missing API key; send Authorization: Bearer sk-adp-… or x-api-key",
+			Message: "missing API key; send Authorization: Bearer sk-prune-… or x-api-key",
 		}
 	}
 

@@ -3,7 +3,7 @@ package admin
 import (
 	"context"
 
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // LogsQuery selects one page of request logs.

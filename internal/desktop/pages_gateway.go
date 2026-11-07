@@ -6,9 +6,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"github.com/learningdog1/ada_proxy/internal/admin"
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/admin"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // The gateway pages share one shape: a table whose last column is a compact
@@ -902,7 +902,7 @@ func (s *uiState) keysPage(c *ui.Context) {
 			rows := s.clientKeys
 			if len(rows) == 0 {
 				card(c, func() {
-					emptyState(c, "还没有客户端密钥", "下游工具用 sk-adp-* 作为 Bearer token")
+					emptyState(c, "还没有客户端密钥", "下游工具用 sk-prune-* 作为 Bearer token")
 				})
 				return
 			}

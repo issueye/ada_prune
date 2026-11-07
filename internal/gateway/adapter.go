@@ -16,7 +16,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
 )
 
 // Kind identifies an adapter implementation. It is the value stored in

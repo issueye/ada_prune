@@ -1,6 +1,6 @@
 # AGENTS.md · 协作红线
 
-本文件约束**所有**参与 AdaProxy 的开发者与智能体。与代码冲突时以本文档为准；
+本文件约束**所有**参与 AdaPrune 的开发者与智能体。与代码冲突时以本文档为准；
 与 [docs/05-api-contract.md](docs/05-api-contract.md) 冲突时，先改契约再改代码。
 
 ---
@@ -9,7 +9,7 @@
 
 本地 AI 网关：**主干协议中立**，**Command Code 只是一个供应商适配器**。
 
-> **本项目是纯重写（greenfield rewrite）**：不继承旧项目（`ada_proxy - 副本` / `ada_prune`）的
+> **本项目是纯重写（greenfield rewrite）**：不继承旧项目（`ada_proxy - 副本` 等）的
 > 数据库、配置、HTTP 路径、环境变量、密钥前缀。旧代码里值得保留的**算法与协议知识**
 > 会重新实现进适配器，但**没有任何兼容层**。
 
@@ -80,7 +80,7 @@
 
 ## 5. 命名与风格
 
-- 模块名 `github.com/learningdog1/ada_proxy`；包名短小写；
+- 模块名 `github.com/learningdog1/ada_prune`；包名短小写；
 - 文件名用下划线分段（`openai_chat.go`、`page_providers.go`）；
 - 错误值用 `errors.New`/`fmt.Errorf("...: %w")`，对外的错误消息**英文且稳定**（客户端可匹配）；
 - 导出符号必须有注释，首句以符号名开头；
@@ -98,7 +98,7 @@
 ## 7. 安全红线
 
 - 禁止把任何密钥写入日志、错误消息、HTTP 响应、金标准文件；
-- 管理写操作必须校验同源 `Origin`；`ADP_ADMIN_TOKEN` 比较必须常数时间；
+- 管理写操作必须校验同源 `Origin`；`PRUNE_ADMIN_TOKEN` 比较必须常数时间；
 - 非回环监听时启动日志必须告警；
 - 上传/导入类接口必须有大小上限；
 - 依赖新增需说明理由（本项目坚持「单二进制、纯 Go、无 CGO」）。

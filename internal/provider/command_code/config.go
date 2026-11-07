@@ -13,7 +13,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway"
 )
 
 // Defaults of the adapter configuration. They are the values a newly created

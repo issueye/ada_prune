@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/learningdog1/ada_proxy/internal/httpkit"
+	"github.com/learningdog1/ada_prune/internal/httpkit"
 )
 
 // asTooLarge is errors.As with a concrete target, kept local so dataplane.go does

@@ -1,11 +1,11 @@
-# AdaProxy 文档索引
+# AdaPrune 文档索引
 
 > 通用型本地 AI 网关（Local AI Gateway）设计套件。
 > 本目录是**设计阶段**的唯一事实源：先定契约，再写代码。
 
 | 项目 | 内容 |
 | --- | --- |
-| 产品代号 | **AdaProxy**（`ada_proxy`） |
+| 项目代号 | **AdaPrune**（`ada_prune`） |
 | 版本 | v1.0（设计稿，从零重写） |
 | 日期 | 2026-11-07 |
 | 设计参考 | [`aluka_cloud/llm`](file:///E:/codes/go_projects/aluka_cloud/llm)（供应商/模型/密钥/协议转换网关） |

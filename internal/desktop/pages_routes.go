@@ -5,8 +5,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"github.com/learningdog1/ada_proxy/internal/admin"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/admin"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // routeModelsPage aggregates models from several providers under one public

@@ -1,4 +1,4 @@
-// Command adp-server runs the gateway without a window, for servers and
+// Command prune-server runs the gateway without a window, for servers and
 // containers.
 package main
 
@@ -10,14 +10,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/app"
-	"github.com/learningdog1/ada_proxy/internal/version"
+	"github.com/learningdog1/ada_prune/internal/app"
+	"github.com/learningdog1/ada_prune/internal/version"
 )
 
 func main() {
 	a, err := app.New(app.Options{})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[adp-server] startup failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[prune-server] startup failed: %v\n", err)
 		os.Exit(1)
 	}
 	defer a.Close()
@@ -25,7 +25,7 @@ func main() {
 	cfg := a.Cfg.Get()
 	ln, err := a.Listen(cfg.Host, cfg.Port)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[adp-server] cannot listen on %s:%d: %v\n", cfg.Host, cfg.Port, err)
+		fmt.Fprintf(os.Stderr, "[prune-server] cannot listen on %s:%d: %v\n", cfg.Host, cfg.Port, err)
 		os.Exit(1)
 	}
 
@@ -33,15 +33,15 @@ func main() {
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		sig := <-signals
-		fmt.Fprintf(os.Stderr, "[adp-server] %s received, shutting down\n", sig)
+		fmt.Fprintf(os.Stderr, "[prune-server] %s received, shutting down\n", sig)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = a.Shutdown(ctx)
 	}()
 
 	if err := a.Serve(ln); err != nil {
-		fmt.Fprintf(os.Stderr, "[adp-server] serve failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[prune-server] serve failed: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "[adp-server] %s stopped\n", version.String())
+	fmt.Fprintf(os.Stderr, "[prune-server] %s stopped\n", version.String())
 }

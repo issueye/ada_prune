@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
 )
 
 // ClientError is a failure rendered for the calling protocol.

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/admin"
+	"github.com/learningdog1/ada_prune/internal/admin"
 )
 
 // createRouteTestModel seeds a provider with one credential and one model, the

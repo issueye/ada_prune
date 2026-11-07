@@ -4,9 +4,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/logging"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/logging"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // recorderQueueSize bounds the number of finished calls waiting to be written.

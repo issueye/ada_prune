@@ -44,8 +44,8 @@ func TestFirstRunWritesDefaults(t *testing.T) {
 }
 
 func TestHostAndPortArePinnedByEnv(t *testing.T) {
-	t.Setenv("ADP_PORT", "4111")
-	t.Setenv("ADP_HOST", "0.0.0.0")
+	t.Setenv("PRUNE_PORT", "4111")
+	t.Setenv("PRUNE_HOST", "0.0.0.0")
 
 	s := openTemp(t)
 	if got := s.Get().Port; got != 4111 {

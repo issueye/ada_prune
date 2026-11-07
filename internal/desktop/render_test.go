@@ -10,9 +10,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"github.com/learningdog1/ada_proxy/internal/admin"
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/admin"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // TestRenderPages writes a PNG of each page to build/ui/ so the layout can be
@@ -198,7 +198,7 @@ func TestRenderPages(t *testing.T) {
 	if err := state.refresh(); err != nil {
 		t.Fatalf("refresh keys: %v", err)
 	}
-	state.createdToken = "sk-adp-0123456789abcdef0123456789abcdef"
+	state.createdToken = "sk-prune-0123456789abcdef0123456789abcdef"
 	tt.Frame()
 	writePNG(t, tt, filepath.Join(out, "keys-created.png"))
 }

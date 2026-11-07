@@ -16,11 +16,11 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
-	"github.com/learningdog1/ada_proxy/internal/admin"
-	"github.com/learningdog1/ada_proxy/internal/app"
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/provider"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/admin"
+	"github.com/learningdog1/ada_prune/internal/app"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/provider"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // uiState is the window's state. The view reads it on the main thread only;
@@ -184,7 +184,7 @@ var pageTitles = map[string]pageTitle{
 	"/models":       {"模型", "对外模型、上游映射与可路由性"},
 	"/route-models": {"路由模型", "把多家供应商的模型聚合成一个对外 ID"},
 	"/credentials":  {"凭据", "上游密钥池与额度状态"},
-	"/keys":         {"客户端密钥", "下游工具使用的 sk-adp-* 密钥"},
+	"/keys":         {"客户端密钥", "下游工具使用的 sk-prune-* 密钥"},
 	"/endpoints":    {"端点", "数据面入口"},
 	"/settings":     {"设置", "服务与协议参数"},
 	"/about":        {"关于", "版本、数据目录与运行状态"},

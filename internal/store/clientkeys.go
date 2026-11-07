@@ -13,7 +13,7 @@ import (
 )
 
 // ClientKeyPrefix is the visible prefix of a minted client key.
-const ClientKeyPrefix = "sk-adp-"
+const ClientKeyPrefix = "sk-prune-"
 
 // ErrClientKeyInvalid means the presented token does not resolve to an enabled,
 // unexpired key.

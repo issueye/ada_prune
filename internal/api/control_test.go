@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/learningdog1/ada_proxy/internal/app"
+	"github.com/learningdog1/ada_prune/internal/app"
 )
 
 // adminCall performs one control-plane request and decodes the JSON answer.
@@ -451,7 +451,7 @@ func TestClientKeyLifecycleOverHTTP(t *testing.T) {
 		t.Fatalf("create: status = %d body = %v", status, body)
 	}
 	token, _ := body["token"].(string)
-	if !strings.HasPrefix(token, "sk-adp-") {
+	if !strings.HasPrefix(token, "sk-prune-") {
 		t.Fatalf("token = %q", token)
 	}
 	keyID := int64(body["id"].(float64))

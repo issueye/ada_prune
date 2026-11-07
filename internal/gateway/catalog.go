@@ -3,7 +3,7 @@ package gateway
 import (
 	"errors"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
 )
 
 // ErrModelNotFound means the requested model name is unknown or disabled.

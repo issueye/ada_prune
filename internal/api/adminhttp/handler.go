@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/learningdog1/ada_proxy/internal/admin"
-	"github.com/learningdog1/ada_proxy/internal/httpkit"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/admin"
+	"github.com/learningdog1/ada_prune/internal/httpkit"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // maxAdminBody bounds management request bodies. They carry key lists and

@@ -1,4 +1,4 @@
-module github.com/learningdog1/ada_proxy
+module github.com/learningdog1/ada_prune
 
 go 1.27.3
 

@@ -12,7 +12,7 @@
 
 ## 1. 产品定位
 
-**AdaProxy 是一个跑在本机的通用型 AI 网关**：一个单可执行文件，一个本地 SQLite，
+**AdaPrune 是一个跑在本机的通用型 AI 网关**：一个单可执行文件，一个本地 SQLite，
 一张桌面原生界面（Go 自绘，无 webview、无前端构建），把「多种上游 AI 供应商」统一成
 「一套 OpenAI / Anthropic 兼容端点」。
 
@@ -51,7 +51,7 @@
 | 额度策略 | QuotaPolicy | 适配器可选实现：解释上游「没钱了/超额了」并给出恢复时间 |
 | 模型 | Model | 供应商下的可调用模型：对外名、上游名、协议、价格、能力 |
 | 路由模型 | RouteModel | 把多个模型聚合成一个对外名，按权重/优先级选择（可选能力） |
-| 客户端密钥 | ClientKey | 网关签发给下游工具的密钥 `sk-adp-*`，只存哈希 |
+| 客户端密钥 | ClientKey | 网关签发给下游工具的密钥 `sk-prune-*`，只存哈希 |
 | 端点 | Endpoint | 对外路径 + 入站协议 + 目标模型（内置三条 + 可选自定义） |
 | 入站协议 | Inbound Protocol | 下游使用的协议：`openai_chat` / `openai_responses` / `anthropic` |
 | 上游协议 | Upstream Protocol | 适配器实际使用的协议，由 `model.upstream_protocol` + `provider.kind` 决定 |
@@ -118,7 +118,7 @@
 
 ### 3.5 F5 客户端密钥与端点
 
-- 客户端密钥：`sk-adp-<32hex>`，创建时**仅返回一次明文**，落库只存 `key_hash` + `key_prefix`。
+- 客户端密钥：`sk-prune-<32hex>`，创建时**仅返回一次明文**，落库只存 `key_hash` + `key_prefix`。
   - 字段：`name`、`enabled`、`allowed_models`（空=全部）、`allowed_ips`（CIDR 列表）、
     `quota_tokens`（0=不限）、`quota_used`、`expires_at`、`remark`；
   - 支持启用/停用、用量重置、轮换（重新签发）、删除；
@@ -181,8 +181,8 @@
 
 ### 3.10 F10 桌面与无头双形态
 
-- 桌面（`cmd/adp-desktop`，mygo 原生 UI）：窗口 + 托盘，进程内起服务，关窗不退出。
-- 无头（`cmd/adp-server`）：无 GUI 依赖，`/health`、`/admin/api/*`、`/v1/*`、优雅退出。
+- 桌面（`cmd/prune-desktop`，mygo 原生 UI）：窗口 + 托盘，进程内起服务，关窗不退出。
+- 无头（`cmd/prune-server`）：无 GUI 依赖，`/health`、`/admin/api/*`、`/v1/*`、优雅退出。
 - 两者共用同一个 `internal/app` 组装根。
 
 ## 4. 非功能需求
@@ -192,7 +192,7 @@
 | 兼容性 | 下游与官方 SDK 兼容（OpenAI Chat/Responses、Anthropic Messages）；上游接入通过适配器扩展，不修改主干 |
 | 性能 | 网关自身开销（不含上游）P95 < 20ms；适配器与 IR 层零网络依赖（可纯函数单测） |
 | 流式 | 边收边发、`Flush` 即时；客户端断开即取消上游；`WriteTimeout` 必须为 0 |
-| 安全 | 上游密钥 AES-256-GCM 落库；客户端密钥只存哈希；日志禁打印明文密钥与完整报文；管理写操作校验同源 Origin，支持 `ADP_ADMIN_TOKEN`（常数时间比较） |
+| 安全 | 上游密钥 AES-256-GCM 落库；客户端密钥只存哈希；日志禁打印明文密钥与完整报文；管理写操作校验同源 Origin，支持 `PRUNE_ADMIN_TOKEN`（常数时间比较） |
 | 可用 | 存储失败降级内存；上游失败统一 502/透传语义；单二进制、无外部依赖 |
 | 可测试 | IR/适配器纯函数单测；`httptest` 假上游端到端；金标准报文比对 |
 | 可观测 | 结构化行日志（含 path/model/provider/duration）；`/health` |
@@ -205,8 +205,8 @@
 | 级别 | 凭据 | 说明 |
 | :--- | :--- | :--- |
 | 本机 Open | 无（默认） | 仅监听 `127.0.0.1` 时默认放行 |
-| 令牌 | `ADP_ADMIN_TOKEN`（`Authorization: Bearer` 或 `?token=`） | 设了就强制；非回环监听时启动日志告警 |
-| 数据面 | `Authorization: Bearer sk-adp-*` / `x-api-key` | 客户端密钥；`endpoint.auth_required=false` 时允许匿名（仅限内网） |
+| 令牌 | `PRUNE_ADMIN_TOKEN`（`Authorization: Bearer` 或 `?token=`） | 设了就强制；非回环监听时启动日志告警 |
+| 数据面 | `Authorization: Bearer sk-prune-*` / `x-api-key` | 客户端密钥；`endpoint.auth_required=false` 时允许匿名（仅限内网） |
 
 > 若未来需要多用户/多租户，再按 [05 §2](05-api-contract.md) 预留的 `creator` 字段扩展，本期不做。
 

@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway/codec"
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
-	"github.com/learningdog1/ada_proxy/internal/logging"
+	"github.com/learningdog1/ada_prune/internal/gateway/codec"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/logging"
 )
 
 // Limits bounds one data-plane call.

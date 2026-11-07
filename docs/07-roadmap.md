@@ -16,7 +16,7 @@
 | # | 原则 | 说明 |
 | :-: | :--- | :--- |
 | R1 | **不继承** | 不复用旧项目的数据库 schema、`config.json` 键、环境变量前缀、密钥前缀、管理接口路径 |
-| R2 | **借鉴知识，不搬代码** | 旧项目（`ada_proxy - 副本` / `ada_prune`）里经过实测的**协议事实**——信封字段与键序、指纹哈希算法、"finish 缺失即截断"的判定、402/429 的语义区分——作为**规格**写进 [03](03-provider-adapter.md)/[04](04-protocol-conversion.md)，然后重新实现 |
+| R2 | **借鉴知识，不搬代码** | 旧项目（`ada_proxy - 副本` 等）里经过实测的**协议事实**——信封字段与键序、指纹哈希算法、"finish 缺失即截断"的判定、402/429 的语义区分——作为**规格**写进 [03](03-provider-adapter.md)/[04](04-protocol-conversion.md)，然后重新实现 |
 | R3 | **主干先立，适配器后填** | 先做得出 `gateway/ir` + 三个 codec + 一个空适配器的骨架，再接 Command Code |
 | R4 | **每阶段可运行** | 每个阶段结束都能 `go build` + `go test` + 起服务打一次接口 |
 | R5 | **金标准防止走样** | 信封与指纹的固定测试向量在 P2 前先落盘，实现对着它写 |
@@ -36,9 +36,9 @@
 
 | 任务 | 产出 |
 | :--- | :--- |
-| 1.1 初始化仓库 | `go.mod`（module `github.com/learningdog1/ada_proxy`）、`.gitignore`、`mygo.json`、目录骨架 |
-| 1.2 `internal/paths` | 数据目录解析（`ADP_DATA_DIR` > 可执行目录旁 `data/`） |
-| 1.3 `internal/config` | `data/config.json` 快照 + `ADP_*` 环境变量覆盖 + 原子写 |
+| 1.1 初始化仓库 | `go.mod`（module `github.com/learningdog1/ada_prune`）、`.gitignore`、`mygo.json`、目录骨架 |
+| 1.2 `internal/paths` | 数据目录解析（`PRUNE_DATA_DIR` > 可执行目录旁 `data/`） |
+| 1.3 `internal/config` | `data/config.json` 快照 + `PRUNE_*` 环境变量覆盖 + 原子写 |
 | 1.4 `internal/secretbox` | AES-256-GCM、`.secret.key` 首启生成（`0600`）、`Mask()` |
 | 1.5 `internal/store` | SQLite 连接（单连接 + `busy_timeout`）、9 张表的 schema、降级内存 |
 | 1.6 `internal/logging` / `version` / `httpkit` | 行日志、构建版本、JSON/SSE 小工具 |
@@ -46,7 +46,7 @@
 | 1.8 `internal/app` | 组装根 + 后台任务框架 + 优雅退出 |
 | 1.9 `internal/api` 骨架 | `/health`、CORS、准入、panic 恢复 |
 
-**DoD**：`go run ./cmd/adp-server` 起得来，`/health` 返回 OK，SQLite 建表成功，降级路径可测。
+**DoD**：`go run ./cmd/prune-server` 起得来，`/health` 返回 OK，SQLite 建表成功，降级路径可测。
 
 ### P2 · 适配器层与 Command Code（1.5 周）
 
@@ -133,7 +133,7 @@
 
 | 任务 | 产出 |
 | :--- | :--- |
-| 8.1 二进制 | `AdaProxy.exe`（desktop）、`adp-server.exe`（headless） |
+| 8.1 二进制 | `AdaPrune.exe`（desktop）、`prune-server.exe`（headless） |
 | 8.2 打包脚本 | 图标 / 版本信息 / DPI manifest / GUI 子系统自检 |
 | 8.3 冒烟脚本 | 建供应商 → 凭据 → 模型 → 客户端密钥 → 三协议调用 → 查日志 |
 | 8.4 README | 定位、快速开始、架构图、文档索引 |
@@ -207,7 +207,7 @@
 
 | 交付项 | 落点 | 验证 |
 | :--- | :--- | :--- |
-| 模块与目录骨架 | `go.mod`（`github.com/learningdog1/ada_proxy`）、`cmd/`、`internal/` | `go build ./...` |
+| 模块与目录骨架 | `go.mod`（`github.com/learningdog1/ada_prune`）、`cmd/`、`internal/` | `go build ./...` |
 | 数据目录解析 | `internal/paths` | `paths_test.go`（env 覆盖 / 参数优先 / 绝对路径） |
 | 配置单文件 + env | `internal/config` | `config_test.go`（默认写入 / env 钉住 / 持久化 / 未知键保留 / 校验） |
 | AES-256-GCM + 掩码 | `internal/secretbox` | `secretbox_test.go`（往返 / 新鲜 nonce / 篡改拒绝 / 密钥文件 / 短密钥不外泄） |
@@ -217,14 +217,14 @@
 | 协议 IR 类型 | `internal/gateway/ir` | `ir_test.go`（协议解析 / finish 归一 / usage） |
 | 组装根 + 后台任务 | `internal/app` | 经 `internal/api` 端到端 |
 | HTTP 骨架 | `internal/api` | `server_test.go`（health / 404 / 501 / CORS / 请求 id / 管理面鉴权 / 设置往返 / 同源校验） |
-| 无头入口 | `cmd/adp-server` | 实跑：`/health` → `OK`，`/admin/api/*` 正常 |
+| 无头入口 | `cmd/prune-server` | 实跑：`/health` → `OK`，`/admin/api/*` 正常 |
 
-实测记录（`ADP_PORT=3999`，临时数据目录）：
+实测记录（`PRUNE_PORT=3999`，临时数据目录）：
 
 ```
 GET  /health               200 OK
 GET  /admin/api/overview   200 {"providers":{"total":0,...},"degraded":false}
-GET  /admin/api/status     200 {"databasePath":"...\adaproxy.db","envPinned":["port"]}
+GET  /admin/api/status     200 {"databasePath":"...\ada_prune.db","envPinned":["port"]}
 GET  /admin/api/settings   200 (全部配置键)
 PUT  /admin/api/settings   200 {"ok":true,"saved":{"logLevel":"debug","maxBodyMB":64}}
 PUT  /admin/api/settings   403 (Origin: http://evil.example) → cross-origin write rejected
@@ -232,7 +232,7 @@ GET  /v1/models            200 {"object":"list","data":[]}
 POST /v1/chat/completions  501 {"error":{"type":"not_implemented"}}
 ```
 
-首启自动生成：`config.json`、`.secret.key`（32 字节）、`adaproxy.db`、`logs/`。
+首启自动生成：`config.json`、`.secret.key`（32 字节）、`ada_prune.db`、`logs/`。
 
 自检：`gofmt -l .` 干净、`go vet ./...` 通过、`go test ./...` **64 个用例全绿**。
 
@@ -280,7 +280,7 @@ POST /v1/chat/completions  501 {"error":{"type":"not_implemented"}}
 | 导出 | `Service.Export` + `/admin/api/export` | 只出掩码，绝无明文密钥 |
 | 契约测试 | `internal/api/control_test.go` | 10 组端到端用例（含 409 守卫与字段级 400） |
 
-实测（`ADP_PORT=3997`）：
+实测（`PRUNE_PORT=3997`）：
 
 ```
 POST /providers            → routing 前置：routable=false, reason="provider has no active credential"
@@ -338,7 +338,7 @@ POST /client-keys/{id}/rotate → 新 token
 | 观测接口 | `/admin/api/logs`、`/admin/api/usage` | 分页过滤与四种聚合维度 |
 | 端到端 | `api/dataplane_test.go` | 假上游跑通三协议、流式、轮转、鉴权、记账 |
 
-实测（`ADP_PORT=3995`，上游故意不可达）：
+实测（`PRUNE_PORT=3995`，上游故意不可达）：
 
 ```
 POST /v1/chat/completions  → 502（上游失败，如实返回）
@@ -425,14 +425,14 @@ POST /v1/responses (Responses 入站, openai_responses 模型)
 - 账号用量面板（Command Code 能力已实现，界面未画）。
 
 `go test ./...` 目前 **208 个用例**，`gofmt -l .` 与 `go vet ./...` 干净；
-`build/adp-desktop.exe` 与 `build/adp-server.exe` 均可构建。
+`build/prune-desktop.exe` 与 `build/prune-server.exe` 均可构建。
 
 ### P8 · 打包与发布 — 已完成
 
 | 交付项 | 落点 | 验证 |
 | :--- | :--- | :--- |
 | 应用图标 | `resources/icon.png`（512）、`icon-small.png`（128）、`tools/logo/gen.py` 生成 | 视觉检查 |
-| 打包脚本 | `scripts/build-windows.ps1` | 产出 `AdaProxy.exe`（GUI 子系统）与 `adp-server.exe`（控制台） |
+| 打包脚本 | `scripts/build-windows.ps1` | 产出 `AdaPrune.exe`（GUI 子系统）与 `prune-server.exe`（控制台） |
 | 子系统自检 | 脚本读 PE 头 `OptionalHeader.Subsystem` | 若非 2（GUI）则报错 |
 | mygo 工具依赖 | `go.mod` 的 `tool github.com/egoist/mygo/cmd/mygo` | `go tool mygo version` → 0.7.4 |
 | 假上游 | `tools/mockupstream` | 说 NDJSON、带 402 拒绝、模型目录与账号端点 |
@@ -442,9 +442,9 @@ POST /v1/responses (Responses 入站, openai_responses 模型)
 打包实测：
 
 ```
-Building AdaProxy 0.1.0 (dev) for windows/amd64
-  AdaProxy.exe (mygo build: icon, manifest, version)  16.2 MB - subsystem: GUI (no console)
-  adp-server.exe                                       12.1 MB - headless
+Building AdaPrune 0.1.0 (dev) for windows/amd64
+  AdaPrune.exe (mygo build: icon, manifest, version)  16.2 MB - subsystem: GUI (no console)
+  prune-server.exe                                       12.1 MB - headless
 ```
 
 冒烟实测（`scripts/smoke.ps1`，临时目录 + 假上游）：
@@ -458,7 +458,7 @@ Building AdaProxy 0.1.0 (dev) for windows/amd64
 无密钥 401、日志与用量落库。
 
 **打包顺序的坑**：mygo CLI 会清空 `build/windows-<arch>`，所以脚本先出桌面程序、
-再出无头服务；反过来会把 `adp-server.exe` 删掉。
+再出无头服务；反过来会把 `prune-server.exe` 删掉。
 
 ### P7 修订：界面缺陷修复（首轮走查后）
 

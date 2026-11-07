@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway"
 )
 
 // Quota semantics of the upstream, which are not the standard ones:

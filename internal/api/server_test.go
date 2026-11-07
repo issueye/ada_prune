@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/learningdog1/ada_proxy/internal/app"
+	"github.com/learningdog1/ada_prune/internal/app"
 )
 
 // newServer boots a real app on a temp data directory and wraps its handler.
@@ -236,7 +236,7 @@ func TestDataFilesAreCreated(t *testing.T) {
 	dir := t.TempDir()
 	newServer(t, app.Options{DataDir: dir})
 
-	for _, name := range []string{"config.json", ".secret.key", "adaproxy.db"} {
+	for _, name := range []string{"config.json", ".secret.key", "ada_prune.db"} {
 		if _, err := os.Stat(dir + string(os.PathSeparator) + name); err != nil {
 			t.Fatalf("%s was not created: %v", name, err)
 		}

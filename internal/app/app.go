@@ -14,27 +14,27 @@ import (
 	"sync"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/admin"
-	"github.com/learningdog1/ada_proxy/internal/api"
-	"github.com/learningdog1/ada_proxy/internal/config"
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/logging"
-	"github.com/learningdog1/ada_proxy/internal/paths"
-	"github.com/learningdog1/ada_proxy/internal/provider"
+	"github.com/learningdog1/ada_prune/internal/admin"
+	"github.com/learningdog1/ada_prune/internal/api"
+	"github.com/learningdog1/ada_prune/internal/config"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/logging"
+	"github.com/learningdog1/ada_prune/internal/paths"
+	"github.com/learningdog1/ada_prune/internal/provider"
 	// Registering the adapters is a blank import: each package adds itself to
 	// the registry from init, so wiring stays in one place.
-	_ "github.com/learningdog1/ada_proxy/internal/provider/anthropic"
-	_ "github.com/learningdog1/ada_proxy/internal/provider/command_code"
-	_ "github.com/learningdog1/ada_proxy/internal/provider/openai"
-	"github.com/learningdog1/ada_proxy/internal/secretbox"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	_ "github.com/learningdog1/ada_prune/internal/provider/anthropic"
+	_ "github.com/learningdog1/ada_prune/internal/provider/command_code"
+	_ "github.com/learningdog1/ada_prune/internal/provider/openai"
+	"github.com/learningdog1/ada_prune/internal/secretbox"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // Options configures the app. An empty DataDir resolves through
-// ADP_DATA_DIR, then "<executable dir>/data".
+// PRUNE_DATA_DIR, then "<executable dir>/data".
 type Options struct {
 	DataDir string
-	// AdminToken overrides ADP_ADMIN_TOKEN when non-empty.
+	// AdminToken overrides PRUNE_ADMIN_TOKEN when non-empty.
 	AdminToken string
 }
 
@@ -132,7 +132,7 @@ func New(opts Options) (*App, error) {
 		recorder:    rec,
 		StartedAt:   startedAt,
 		Dirs:        dirs,
-		adminToken:  firstNonEmpty(opts.AdminToken, os.Getenv("ADP_ADMIN_TOKEN")),
+		adminToken:  firstNonEmpty(opts.AdminToken, os.Getenv("PRUNE_ADMIN_TOKEN")),
 		keepAlive:   time.Duration(snap.KeepAliveTimeoutMs) * time.Millisecond,
 		maxInflight: snap.MaxInflight,
 	}
@@ -208,7 +208,7 @@ func (a *App) Serve(ln net.Listener) error {
 		// No write timeout: SSE responses are long lived by design.
 		WriteTimeout: 0,
 	}
-	a.Log.Info("AdaProxy started", map[string]any{
+	a.Log.Info("AdaPrune started", map[string]any{
 		"url":              "http://" + ln.Addr().String(),
 		"dataDir":          a.Dirs.Data,
 		"database":         a.Dirs.DB,
@@ -216,12 +216,12 @@ func (a *App) Serve(ln net.Listener) error {
 		"keepAliveTimeout": a.keepAlive.String(),
 	})
 	if a.adminToken == "" {
-		a.Log.Info("Admin API is open (loopback only). Set ADP_ADMIN_TOKEN to require a bearer token.", nil)
+		a.Log.Info("Admin API is open (loopback only). Set PRUNE_ADMIN_TOKEN to require a bearer token.", nil)
 	}
 	if !isLoopbackHost(a.Cfg.Get().Host) {
 		a.Log.Warn("Non-loopback host: the admin API is reachable from the network", map[string]any{
 			"host": a.Cfg.Get().Host,
-			"hint": "only expose this on a trusted network, and set ADP_ADMIN_TOKEN",
+			"hint": "only expose this on a trusted network, and set PRUNE_ADMIN_TOKEN",
 		})
 	}
 	if a.Store.Degraded() {

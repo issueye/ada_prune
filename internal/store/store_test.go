@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/learningdog1/ada_proxy/internal/secretbox"
+	"github.com/learningdog1/ada_prune/internal/secretbox"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -325,7 +325,7 @@ func TestClientKeyLifecycle(t *testing.T) {
 		t.Fatalf("new token rejected: %v", err)
 	}
 
-	if _, err := s.VerifyClientKey("sk-adp-not-a-real-key"); !errors.Is(err, ErrClientKeyInvalid) {
+	if _, err := s.VerifyClientKey("sk-prune-not-a-real-key"); !errors.Is(err, ErrClientKeyInvalid) {
 		t.Fatalf("unknown token = %v, want ErrClientKeyInvalid", err)
 	}
 	if _, err := s.VerifyClientKey("sk-ccp-legacy"); !errors.Is(err, ErrClientKeyInvalid) {

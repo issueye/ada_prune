@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway"
 )
 
 // FingerprintSalt is the fixed salt the official CLI hashes signals with. It is

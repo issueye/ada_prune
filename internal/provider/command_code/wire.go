@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway"
 )
 
 // defaultConnectTimeout bounds dialling. Request lifetimes are long by design

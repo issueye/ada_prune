@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // RouteModelInput is the create/update payload.

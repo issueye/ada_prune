@@ -17,10 +17,10 @@ var trayIconPNG []byte
 // offers no tray (some Linux sessions), which must not stop the app.
 func setUpTray(onShow, onQuit func()) (*mygo.Tray, error) {
 	tray, err := mygo.NewTray(mygo.TrayOptions{
-		ID:      "adaproxy",
+		ID:      "ada_prune",
 		Icon:    trayIconPNG,
-		ToolTip: "AdaProxy · 本地 AI 网关",
-		Title:   "AdaProxy",
+		ToolTip: "AdaPrune · 本地 AI 网关",
+		Title:   "AdaPrune",
 		Menu:    trayMenu(onShow, onQuit),
 	})
 	if err != nil {
@@ -37,7 +37,7 @@ func trayMenu(onShow, onQuit func()) *mygo.Menu {
 		{Label: "打开管理界面", Click: func(*mygo.MenuItem, *mygo.Window) { onShow() }},
 		{Label: "复制服务地址", Click: func(*mygo.MenuItem, *mygo.Window) { copyEndpoint() }},
 		mygo.Separator(),
-		{Label: "退出 AdaProxy", Click: func(*mygo.MenuItem, *mygo.Window) { onQuit() }},
+		{Label: "退出 AdaPrune", Click: func(*mygo.MenuItem, *mygo.Window) { onQuit() }},
 	})
 }
 

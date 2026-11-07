@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/logging"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/logging"
 )
 
 // Deps is everything an adapter may use. It deliberately holds no store: an

@@ -3,7 +3,7 @@ package version
 
 // Version is the application version, overridden in release builds through
 //
-//	-ldflags "-X github.com/learningdog1/ada_proxy/internal/version.Version=x.y.z"
+//	-ldflags "-X github.com/learningdog1/ada_prune/internal/version.Version=x.y.z"
 var Version = "0.1.0"
 
 // Commit is the source revision, "dev" outside release builds.

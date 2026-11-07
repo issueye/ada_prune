@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/secretbox"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/secretbox"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // maxImportLines bounds a pasted batch, so one paste cannot create thousands of

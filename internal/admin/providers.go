@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // ProviderView is one provider as the control plane returns it.

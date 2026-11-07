@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/learningdog1/ada_proxy/internal/secretbox"
+	"github.com/learningdog1/ada_prune/internal/secretbox"
 )
 
 // maskOf is the single place the display form of a secret is decided.

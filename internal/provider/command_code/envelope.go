@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
 )
 
 // The envelope is the vendor's request contract. Field order is part of the

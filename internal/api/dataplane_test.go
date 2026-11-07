@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/learningdog1/ada_proxy/internal/app"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/app"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // upstream is a fake Command Code upstream that streams NDJSON.

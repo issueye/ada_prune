@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway"
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
-	"github.com/learningdog1/ada_proxy/internal/logging"
+	"github.com/learningdog1/ada_prune/internal/gateway"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/logging"
 )
 
 // fakeAdapter is a minimal Adapter used to exercise the registry.

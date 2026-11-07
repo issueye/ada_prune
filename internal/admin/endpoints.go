@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/learningdog1/ada_proxy/internal/gateway/ir"
-	"github.com/learningdog1/ada_proxy/internal/store"
+	"github.com/learningdog1/ada_prune/internal/gateway/ir"
+	"github.com/learningdog1/ada_prune/internal/store"
 )
 
 // builtinEndpoints are always served and cannot be edited or deleted.

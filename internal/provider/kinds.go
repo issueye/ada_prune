@@ -1,6 +1,6 @@
 package provider
 
-import "github.com/learningdog1/ada_proxy/internal/gateway"
+import "github.com/learningdog1/ada_prune/internal/gateway"
 
 // Adapter kinds. They live here rather than in internal/gateway so the gateway
 // core never learns a vendor's name; the string values are what

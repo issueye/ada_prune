@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/learningdog1/ada_proxy/internal/version"
+	"github.com/learningdog1/ada_prune/internal/version"
 )
 
 // view builds the window: the title bar the app draws itself, the sidebar with
@@ -97,7 +97,7 @@ func (s *uiState) titleBar(c *ui.Context) {
 				Gradient(ui.Hex("#0d9488"), ui.Hex("#0891b2"), 135).Children(func() {
 				ui.Text(c, "A").FontSize(13).Bold().TextColor(ui.Hex("#ffffff"))
 			})
-			ui.Text(c, "AdaProxy").FontSize(13).Bold().SingleLine()
+			ui.Text(c, "AdaPrune").FontSize(13).Bold().SingleLine()
 			pill(c, "v"+version.Version, t.TextMuted, t.TextMuted.Alpha(0.1))
 		})
 	})

@@ -27,11 +27,11 @@ type Dirs struct {
 
 // Resolve turns a data directory into the full set of paths.
 //
-// Precedence: the ADP_DATA_DIR environment variable, then dataDir, then "data"
+// Precedence: the PRUNE_DATA_DIR environment variable, then dataDir, then "data"
 // relative to the working directory. The directories are not created here;
 // callers create them when they open the files.
 func Resolve(dataDir string) Dirs {
-	root := os.Getenv("ADP_DATA_DIR")
+	root := os.Getenv("PRUNE_DATA_DIR")
 	if root == "" {
 		root = dataDir
 	}
@@ -44,11 +44,11 @@ func Resolve(dataDir string) Dirs {
 	logs := filepath.Join(root, "logs")
 	return Dirs{
 		Data:      root,
-		DB:        filepath.Join(root, "adaproxy.db"),
+		DB:        filepath.Join(root, "ada_prune.db"),
 		SecretKey: filepath.Join(root, ".secret.key"),
 		Config:    filepath.Join(root, "config.json"),
 		Logs:      logs,
-		LogFile:   filepath.Join(logs, "adaproxy.log"),
+		LogFile:   filepath.Join(logs, "ada_prune.log"),
 	}
 }
 

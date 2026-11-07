@@ -5,8 +5,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"github.com/learningdog1/ada_proxy/internal/admin"
-	"github.com/learningdog1/ada_proxy/internal/app"
+	"github.com/learningdog1/ada_prune/internal/admin"
+	"github.com/learningdog1/ada_prune/internal/app"
 )
 
 // newTester boots a real app on a temp directory and gives a headless tester for
@@ -94,7 +94,7 @@ func TestEmptyStatesGuideTheUser(t *testing.T) {
 func TestClientKeyCopyToClipboard(t *testing.T) {
 	state, tt := newTester(t)
 
-	const token = "sk-adp-0123456789abcdef0123456789abcdef"
+	const token = "sk-prune-0123456789abcdef0123456789abcdef"
 	state.createdToken = token
 	state.page = "/keys"
 	if err := state.refresh(); err != nil {
@@ -148,7 +148,7 @@ func TestProviderListShowsAccessMode(t *testing.T) {
 }
 
 func TestSettingsPageShowsPinnedKeys(t *testing.T) {
-	t.Setenv("ADP_PORT", "4555")
+	t.Setenv("PRUNE_PORT", "4555")
 	state, tt := newTester(t)
 
 	state.page = "/settings"
