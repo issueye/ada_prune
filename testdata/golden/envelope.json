@@ -1,0 +1,86 @@
+{
+  "config": {
+    "workingDir": "C:\\Users\\dev\\projects\\app",
+    "date": "2026-11-07",
+    "environment": "win32",
+    "structure": [],
+    "isGitRepo": false,
+    "currentBranch": "",
+    "mainBranch": "",
+    "gitStatus": "",
+    "recentCommits": []
+  },
+  "memory": null,
+  "taste": null,
+  "skills": null,
+  "permissionMode": "standard",
+  "threadId": "0f0e0d0c-0b0a-4908-a706-050403020100",
+  "mode": "agent",
+  "params": {
+    "model": "deepseek/deepseek-v4-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "hello"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "checking"
+          },
+          {
+            "type": "tool-call",
+            "toolCallId": "call_1",
+            "toolName": "shell_output",
+            "input": {
+              "id": "x"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": [
+          {
+            "type": "tool-result",
+            "toolCallId": "call_1",
+            "toolName": "shell_output",
+            "output": {
+              "type": "text",
+              "value": "done"
+            }
+          }
+        ]
+      }
+    ],
+    "max_tokens": 4096,
+    "stream": true,
+    "system": [
+      {
+        "type": "text",
+        "text": "You are a careful assistant."
+      }
+    ],
+    "temperature": 0.3,
+    "reasoning_effort": "high",
+    "tools": [
+      {
+        "name": "read_file",
+        "description": "read files",
+        "input_schema": {
+          "type": "object"
+        }
+      }
+    ],
+    "tool_choice": {
+      "type": "auto"
+    }
+  }
+}

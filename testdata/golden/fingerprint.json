@@ -1,0 +1,23 @@
+{
+  "thumbmark": "54c2e3be7919b18ab965c596a60d2e87de9588dfed48504665d0fc469ee0d26f",
+  "components": {
+    "machineIdHash": "557605133d522e5b5c26fc02f45c76335257f4e4bf6778b84da7dfd4014585f9",
+    "macHashes": [
+      "0c3e0aa9032db93d43fd7b8f12ba5e84afa12e2c924a048de5a2b7cdd8b19db8",
+      "2624d5c8da9c1038a7ef01d48f74df53b6a0ec823f75af766ec8fc694c52e887"
+    ],
+    "osUserHash": "9b7ebf9660f665909a2c156243557ffd36a1dfd0377ca6078a32fa07d751f49e",
+    "hostnameHash": "c27d1224ed3c3f1ccd32681d06f57a42f43199db67c4b98f586d6680e90b0cd7",
+    "gitEmailHash": "292c97c9e34c3768901f1dd25acd425afc676d1c0b6b796d43d7ce64adc638d9",
+    "platform": "win32",
+    "arch": "x64",
+    "osRelease": "10.0.22631",
+    "cpuModel": "AMD Ryzen 7 7800X3D",
+    "cpuCount": 8,
+    "memGiB": 24,
+    "isContainer": false,
+    "timezone": "America/Chicago",
+    "runtime": "cli",
+    "collectorVersion": 1
+  }
+}

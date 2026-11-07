@@ -1,0 +1,22 @@
+# Go build output
+/build/
+/bin/
+*.exe
+*.test
+
+# Local runtime data
+/data/
+*.db
+*.db-wal
+*.db-shm
+.secret.key
+config.json
+
+# mygo dev scratch
+.mygo/
+
+# OS
+.DS_Store
+Thumbs.db
+build/windows-*/
+

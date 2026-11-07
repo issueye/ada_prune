@@ -1,0 +1,23 @@
+{
+  "thumbmark": "da26287825ffa201d7d3051392457016bcd5ea7f19120d64fe3af916171fdff5",
+  "components": {
+    "machineIdHash": "4f1cc5c66443dc113c2d988afe0ebeec99f5122fd873603df39c59b8f392bb63",
+    "macHashes": [
+      "89d3e0bd6d4f0e925826f135527d0f381949c7c99474ca9f1cd34631ecc8888d",
+      "ef7ba65281d2778e861b5b63bd41058b59f11f790cce4854b81e56c43c5b2f75"
+    ],
+    "osUserHash": "9b7ebf9660f665909a2c156243557ffd36a1dfd0377ca6078a32fa07d751f49e",
+    "hostnameHash": "11f3870e212e4d11b60d8369c01899f82cffde31ec78ec606d303a5bac9a7b22",
+    "gitEmailHash": "5f39bce0a90d77213d6be99053382c94ceecb017710b834455b2725f09774b2f",
+    "platform": "win32",
+    "arch": "x64",
+    "osRelease": "10.0.22631",
+    "cpuModel": "Intel(R) Core(TM) i9-14900K",
+    "cpuCount": 24,
+    "memGiB": 32,
+    "isContainer": false,
+    "timezone": "Asia/Singapore",
+    "runtime": "cli",
+    "collectorVersion": 1
+  }
+}

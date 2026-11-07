@@ -1,0 +1,9 @@
+{
+  "name": "AdaProxy",
+  "slug": "ada-proxy",
+  "identifier": "ai.adacode.proxy.desktop",
+  "version": "0.1.0",
+  "main": "./cmd/adp-desktop",
+  "icon": "resources/icon.png",
+  "out": "build"
+}

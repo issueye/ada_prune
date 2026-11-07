@@ -1,0 +1,14 @@
+# NOTICE
+
+本项目(commandcode-proxy)部分源码派生自 MAXeaglet/commandcode-proxy
+(https://github.com/MAXeaglet/commandcode-proxy,MIT License)。
+
+- 派生基线 commit:9bdfafcb17ad0417eaf8600e830109d11084e6d7
+  ("fix: 上游没正常走完 finish 时不再谎报成功")
+- 派生范围:协议层代码(src/protocol/、src/http/、src/routes/ 及其测试),
+  由参考项目的单文件 proxy.mjs 拆分而来;原注释(含真机调优记录)尽量原样保留。
+- 参考项目版权声明:
+  Copyright (c) MAXeaglet,以 MIT License 授权,详见其仓库 LICENSE。
+
+派生时未对上游协议行为做任何语义改动(除计划内明确列出的接缝:
+密钥解析、请求记录)。感谢原作者的协议逆向与工程化工作。
