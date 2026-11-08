@@ -168,7 +168,7 @@ func New(opts Options) (*App, error) {
 | `models` | `id, provider_id, display_name, public_name, upstream_name, upstream_protocol, input_price, output_price, cached_input_price, context_window, max_tokens, supports_stream, supports_tools, supports_vision, enabled, sort, remark` | `uk_public_name`、`uk_provider_upstream`、`idx_provider` |
 | `route_models` | `id, name, strategy(priority/weighted), enabled, remark` | `uk_name` |
 | `route_model_members` | `id, route_model_id, model_id, priority, weight, enabled` | `idx_route_model` |
-| `client_keys` | `id, name, key_hash, key_prefix, enabled, allowed_models_json, allowed_ips, quota_tokens, quota_used, expires_at, last_used_at, remark` | `uk_key_hash`、`idx_enabled` |
+| `client_keys` | `id, name, key_hash, key_prefix, key_encrypted, enabled, allowed_models_json, allowed_ips, quota_tokens, quota_used, expires_at, last_used_at, remark` | `uk_key_hash`、`idx_enabled` |
 | `endpoints` | `id, name, path, inbound_protocol, target_type(model/route_model), target_id, auth_required, rate_per_min, timeout_ms, enabled, remark` | `uk_path` |
 | `requests` | `id, ts, endpoint, inbound_protocol, provider_id, provider_kind, model, client_key_id, credential_id, status_code, stream, duration_ms, ttft_ms, input_tokens, output_tokens, cached_tokens, cost, finish_reason, error_type, client_disconnected` | `idx_ts`、`idx_provider`、`idx_model`、`idx_client_key` |
 | `usage_daily` | `day, provider_id, model, client_key_id, requests, input_tokens, output_tokens, cached_tokens, cost` | `pk(day, provider_id, model, client_key_id)` |
@@ -183,6 +183,9 @@ func New(opts Options) (*App, error) {
   （`vendor_native` 表示由适配器内部处理私有 wire）；
 - `models.public_name`：对外模型 id，数据面 `model` 参数与 `/v1/models` 都用它；全局唯一；
 - `client_keys.allowed_models_json`：`[]` 表示全部；`allowed_ips`：逗号分隔 CIDR/IP；
+- `client_keys.key_encrypted`：secretbox 加密的明文副本，供控制面（桌面「复制」）取回；
+  `key_hash` 仍用于数据面校验；旧库升级后该列为 NULL，轮换一次即补齐；
+  明文只经 `admin.Service.RevealClientKey` 出口，不提供 HTTP 路由；
 - `credentials.status`：`exhausted` 由额度策略写入（只有 `active` 参与路由）；
 - `settings` 里固定键 `route_pinned_credential_id` 存人工固定的凭据。
 

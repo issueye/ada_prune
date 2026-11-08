@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS client_keys (
   name                TEXT    NOT NULL,
   key_hash            TEXT    NOT NULL UNIQUE,
   key_prefix          TEXT    NOT NULL,
+  key_encrypted       TEXT,
   enabled             INTEGER NOT NULL DEFAULT 1,
   allowed_models_json TEXT    NOT NULL DEFAULT '[]',
   allowed_ips         TEXT    NOT NULL DEFAULT '',
@@ -290,6 +291,46 @@ func (s *Store) Migrate() error {
 	}
 	if _, err := s.db.Exec(Schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
+	}
+	// CREATE TABLE IF NOT EXISTS cannot extend a table an older binary made,
+	// so post-dated columns are backfilled one by one.
+	return s.ensureColumn("client_keys", "key_encrypted", "TEXT")
+}
+
+// ensureColumn adds one column when the existing table predates it. table and
+// column are compile-time constants, and ADD COLUMN on a nullable column is
+// instant in SQLite.
+func (s *Store) ensureColumn(table, column, decl string) error {
+	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return fmt.Errorf("store: inspect %s: %w", table, err)
+	}
+	defer func() { _ = rows.Close() }()
+	var present bool
+	for rows.Next() {
+		var (
+			cid     int
+			name    string
+			ctype   string
+			notNull int
+			dflt    any
+			pk      int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
+			return fmt.Errorf("store: inspect %s: %w", table, err)
+		}
+		if name == column {
+			present = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("store: inspect %s: %w", table, err)
+	}
+	if present {
+		return nil
+	}
+	if _, err := s.db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + decl); err != nil {
+		return fmt.Errorf("store: add %s.%s: %w", table, column, err)
 	}
 	return nil
 }

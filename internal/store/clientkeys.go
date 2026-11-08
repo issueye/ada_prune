@@ -19,6 +19,10 @@ const ClientKeyPrefix = "sk-prune-"
 // unexpired key.
 var ErrClientKeyInvalid = errors.New("store: invalid client key")
 
+// ErrClientKeyNotRecoverable means the row predates encrypted storage and the
+// plaintext no longer exists anywhere; rotating mints a copyable replacement.
+var ErrClientKeyNotRecoverable = errors.New("store: client key plaintext is not recoverable")
+
 const clientKeyColumns = `id, name, key_hash, key_prefix, enabled, allowed_models_json, allowed_ips,
 	quota_tokens, quota_used, expires_at, last_used_at, remark, created_at, updated_at`
 
@@ -30,8 +34,8 @@ type CreatedClientKey struct {
 	Token     string `json:"token"`
 }
 
-// CreateClientKey mints a key, stores only its hash and prefix, and returns the
-// plaintext once.
+// CreateClientKey mints a key, stores its hash, prefix and a secretbox-encrypted
+// copy the control plane can reveal later, and returns the plaintext once.
 func (s *Store) CreateClientKey(k ClientKey) (CreatedClientKey, error) {
 	if strings.TrimSpace(k.Name) == "" {
 		return CreatedClientKey{}, errors.New("store: client key name is empty")
@@ -40,12 +44,16 @@ func (s *Store) CreateClientKey(k ClientKey) (CreatedClientKey, error) {
 	if err != nil {
 		return CreatedClientKey{}, err
 	}
+	cipherText, err := s.encryptClientKey(token)
+	if err != nil {
+		return CreatedClientKey{}, err
+	}
 	now := s.nowMs()
 	res, err := s.db.Exec(`INSERT INTO client_keys
-		(name, key_hash, key_prefix, enabled, allowed_models_json, allowed_ips,
+		(name, key_hash, key_prefix, key_encrypted, enabled, allowed_models_json, allowed_ips,
 		 quota_tokens, quota_used, expires_at, remark, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
-		k.Name, hashToken(token), prefixOf(token), boolToInt(k.Enabled), JSONList(k.AllowedModels),
+		VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+		k.Name, hashToken(token), prefixOf(token), cipherText, boolToInt(k.Enabled), JSONList(k.AllowedModels),
 		k.AllowedIPs, k.QuotaTokens, k.ExpiresAt, k.Remark, now, now)
 	if err != nil {
 		return CreatedClientKey{}, translateErr(err)
@@ -151,8 +159,12 @@ func (s *Store) RotateClientKey(id int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	res, err := s.db.Exec(`UPDATE client_keys SET key_hash = ?, key_prefix = ?, updated_at = ? WHERE id = ?`,
-		hashToken(token), prefixOf(token), s.nowMs(), id)
+	cipherText, err := s.encryptClientKey(token)
+	if err != nil {
+		return "", err
+	}
+	res, err := s.db.Exec(`UPDATE client_keys SET key_hash = ?, key_prefix = ?, key_encrypted = ?, updated_at = ? WHERE id = ?`,
+		hashToken(token), prefixOf(token), cipherText, s.nowMs(), id)
 	if err != nil {
 		return "", translateErr(err)
 	}
@@ -160,6 +172,46 @@ func (s *Store) RotateClientKey(id int64) (string, error) {
 		return "", err
 	}
 	return token, nil
+}
+
+// RevealClientKey decrypts and returns a key's plaintext. Keys minted before
+// encrypted storage carry no cipher and are reported through
+// ErrClientKeyNotRecoverable.
+func (s *Store) RevealClientKey(id int64) (string, error) {
+	var cipher sql.NullString
+	err := s.db.QueryRow(`SELECT key_encrypted FROM client_keys WHERE id = ?`, id).Scan(&cipher)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", translateErr(err)
+	}
+	if !cipher.Valid || cipher.String == "" {
+		return "", ErrClientKeyNotRecoverable
+	}
+	box, err := s.boxOrError()
+	if err != nil {
+		return "", err
+	}
+	token, err := box.Decrypt(cipher.String)
+	if err != nil {
+		return "", fmt.Errorf("store: decrypt client key %d: %w", id, err)
+	}
+	return token, nil
+}
+
+// encryptClientKey seals the plaintext with the same box upstream credentials
+// use; verification still runs through the SHA-256 hash.
+func (s *Store) encryptClientKey(token string) (string, error) {
+	box, err := s.boxOrError()
+	if err != nil {
+		return "", err
+	}
+	cipherText, err := box.Encrypt(token)
+	if err != nil {
+		return "", fmt.Errorf("store: encrypt client key: %w", err)
+	}
+	return cipherText, nil
 }
 
 // ResetClientKeyUsage zeroes the accumulated quota for a key.

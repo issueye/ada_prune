@@ -12,6 +12,7 @@ import (
 // dialog.
 func (s *uiState) view(c *ui.Context) {
 	t := c.Theme()
+	s.registerShortcuts(c)
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
 		s.titleBar(c)
 		ui.Divider(c)
@@ -41,7 +42,66 @@ func (s *uiState) view(c *ui.Context) {
 		ui.Modal(c, &s.routeFormOpen, func() {
 			s.routeDialog(c)
 		})
+		ui.Modal(c, &s.paletteOpen, func() {
+			s.paletteDialog(c)
+		})
+
+		// The destructive-action confirmation sits above everything, including
+		// the forms it may be opened from. Escape or 取消 drops the action.
+		choice := ui.AlertDialog(c, &s.confirmOpen, s.confirmTitle, s.confirmMessage,
+			"取消", s.confirmLabel)
+		if choice == 1 {
+			action := s.confirmAction
+			s.confirmAction = nil
+			if action != nil {
+				action()
+			}
+		} else if !s.confirmOpen {
+			// 取消 or Escape closed it: nothing destructive may run later.
+			s.confirmAction = nil
+		}
 	})
+}
+
+// registerShortcuts wires the window-level keys: refresh, page jumps by number
+// and the command palette. They yield while a dialog covers the window, so a
+// stray chord never acts on the page underneath.
+func (s *uiState) registerShortcuts(c *ui.Context) {
+	c.OnShortcut(ui.Cmd, ui.KeyR, func() {
+		if s.dialogOpen() {
+			return
+		}
+		s.pageErr = ""
+		s.reload()
+	})
+	c.OnShortcut(ui.Cmd, ui.KeyK, func() {
+		if s.dialogOpen() {
+			return
+		}
+		s.paletteQuery = ""
+		s.paletteOpen = true
+	})
+	// The sidebar toggle lives on Cmd+\ : Cmd+B collides with the text editor's
+	// emacs bindings (B is caret-left), which would swallow it while typing.
+	c.OnShortcut(ui.Cmd, ui.KeyBackslash, func() {
+		if s.dialogOpen() {
+			return
+		}
+		s.toggleSidebar()
+	})
+	for i, item := range navItems() {
+		if i >= 9 {
+			break
+		}
+		key := ui.Key1 + ui.Key(i)
+		target := item.Path
+		c.OnShortcut(ui.Cmd, key, func() {
+			if s.dialogOpen() {
+				return
+			}
+			s.navigate(target)
+		})
+	}
 }
 
 // footer is the window's status strip: run state and endpoint on the left, the
@@ -103,32 +163,53 @@ func (s *uiState) titleBar(c *ui.Context) {
 	})
 }
 
-// endpoint renders the listener address.
+// endpoint renders the listener address. The actually bound host/port wins:
+// the configured port can drift when the desktop shell scans for a free one,
+// and the UI must never advertise an address that does not answer.
 func (s *uiState) endpoint() string {
-	host := s.overview.Host
+	host := s.boundHost
+	if host == "" {
+		host = s.overview.Host
+	}
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	return fmt.Sprintf("http://%s:%d", host, s.overview.Port)
+	port := s.boundPort
+	if port == 0 {
+		port = s.overview.Port
+	}
+	return fmt.Sprintf("http://%s:%d", host, port)
 }
 
 func (s *uiState) sidebar(c *ui.Context) {
 	t := c.Theme()
 	previous := s.page
 
-	ui.Column(c).Width(206).FillHeight().Background(t.Background).Children(func() {
-		ui.Column(c).Padding(spS, 10, spS, 10).Gap(1).Children(func() {
+	// Two shapes, one tree: the rail keeps every page reachable by its icon,
+	// the full bar adds the group titles and labels. Width is the only thing
+	// the rest of the window sees.
+	width := float32(206)
+	if s.sidebarCollapsed {
+		width = 56
+	}
+	ui.Column(c).Width(width).FillHeight().Background(t.Background).Children(func() {
+		ui.Column(c).Padding(spS, 10, spS, 10).Gap(1).Grow(1).Children(func() {
 			for _, group := range navGroups {
-				ui.Text(c, group.Title).FontSize(10).TextColor(t.TextMuted).Padding(10, 8, spXS, 10)
+				if s.sidebarCollapsed {
+					// The rail drops the titles but keeps the group rhythm.
+					ui.Box(c).Height(spS)
+				} else {
+					ui.Text(c, group.Title).FontSize(10).TextColor(t.TextMuted).Padding(10, 8, spXS, 10)
+				}
 				for _, item := range group.Items {
 					s.navRow(c, item)
 				}
-				ui.Box(c).Height(spS)
 			}
 		}).Grow(1)
 
 		ui.Divider(c)
 		s.sidebarFooter(c)
+		s.sidebarToggle(c)
 	})
 
 	if s.page != previous {
@@ -137,16 +218,28 @@ func (s *uiState) sidebar(c *ui.Context) {
 }
 
 // navRow is one sidebar item: a surface pill with an accent bar when chosen.
+// Enter or Space activates the focused row, so the sidebar works without a
+// pointer. Folded, the icon alone carries the page — named for the reader and
+// screen readers, with the label as a tooltip.
 func (s *uiState) navRow(c *ui.Context, item navItem) {
 	t := c.Theme()
 	selected := s.page == item.Path
+	folded := s.sidebarCollapsed
 
 	row := ui.Row(c.Key(item.Path)).Padding(0, 10).Height(30).Radius(7).
-		Gap(spS).AlignItems(ui.Center).Focusable()
+		Gap(spS).AlignItems(ui.Center).Focusable().Cursor(ui.CursorPointer)
+	if folded {
+		row = row.Padding(0, 0).Justify(ui.Center)
+	}
 	if selected {
 		row.Background(t.Surface).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.05))
 	} else if row.Hovered() {
 		row.Background(t.SurfaceHover)
+	}
+
+	labelColor := t.Text
+	if selected {
+		labelColor = t.Accent
 	}
 
 	row.Children(func() {
@@ -154,20 +247,63 @@ func (s *uiState) navRow(c *ui.Context, item navItem) {
 		if selected {
 			bar.Background(t.Accent)
 		}
-		labelColor := t.Text
-		if selected {
-			labelColor = t.Accent
+		if item.Icon != nil {
+			icon := ui.Icon(c, item.Icon()).FontSize(14).TextColor(labelColor)
+			if folded {
+				icon.Label(item.Label).Tooltip(item.Label)
+			}
 		}
-		ui.Text(c, item.Label).FontSize(12).TextColor(labelColor).SingleLine()
+		if !folded {
+			ui.Text(c, item.Label).FontSize(12).TextColor(labelColor).SingleLine()
+		}
 	})
 
-	if row.Clicked() {
+	if row.Clicked() || row.Shortcut(0, ui.KeyEnter) || row.Shortcut(0, ui.KeySpace) {
 		s.page = item.Path
+	}
+}
+
+// sidebarToggle folds or unfolds the rail; the choice persists (see
+// toggleSidebar). Folded, the chevron alone fills the row.
+func (s *uiState) sidebarToggle(c *ui.Context) {
+	t := c.Theme()
+	folded := s.sidebarCollapsed
+
+	row := ui.Row(c.Key("sidebar-toggle")).Height(30).Radius(7).Gap(spS).
+		AlignItems(ui.Center).Focusable().Cursor(ui.CursorPointer)
+	if folded {
+		row = row.Padding(0, 0).Justify(ui.Center)
+	}
+	if row.Hovered() {
+		row.Background(t.SurfaceHover)
+	}
+	row.Children(func() {
+		if folded {
+			ui.Icon(c, iconChevronRight()).FontSize(14).TextColor(t.TextMuted).
+				Label("展开侧栏").Tooltip("展开侧栏")
+			return
+		}
+		ui.Icon(c, iconChevronLeft()).FontSize(14).TextColor(t.TextMuted)
+		ui.Text(c, "收起侧栏").FontSize(11).TextColor(t.TextMuted).SingleLine()
+	})
+	if row.Clicked() || row.Shortcut(0, ui.KeyEnter) || row.Shortcut(0, ui.KeySpace) {
+		s.toggleSidebar()
 	}
 }
 
 func (s *uiState) sidebarFooter(c *ui.Context) {
 	t := c.Theme()
+	if s.sidebarCollapsed {
+		// The rail keeps the one glanceable bit: the storage dot.
+		dot := t.Success
+		if s.overview.Degraded {
+			dot = t.Warning
+		}
+		ui.Row(c).Justify(ui.Center).Padding(spS, 0).Children(func() {
+			ui.Box(c).Size(6, 6).Radius(3).Background(dot).Tooltip(storageLabel(s.overview.Degraded))
+		})
+		return
+	}
 	ui.Column(c).Padding(spL, spM, spL, spM).Gap(spXS).Children(func() {
 		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 			dot := t.Success
@@ -207,7 +343,7 @@ func (s *uiState) header(c *ui.Context) {
 		if s.loading {
 			ui.Spinner(c)
 		}
-		if ui.Button(c, "刷新").Clicked() {
+		if iconButton(c, iconRefresh(), "刷新").Clicked() {
 			s.pageErr = ""
 			s.reload()
 		}

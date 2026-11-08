@@ -28,7 +28,7 @@ func (s *uiState) providersPage(c *ui.Context) {
 			ui.Row(c).Gap(spS).AlignItems(ui.Center).Children(func() {
 				pill(c, fmt.Sprintf("%d 个", len(s.providers)), t.TextMuted, t.TextMuted.Alpha(0.1))
 				ui.Spacer(c)
-				if ui.PrimaryButton(c, "新建供应商").Clicked() {
+				if primaryIconButton(c, iconPlus(), "新建供应商").Clicked() {
 					s.openNewProvider()
 				}
 			})
@@ -36,7 +36,11 @@ func (s *uiState) providersPage(c *ui.Context) {
 			rows := s.providers
 			if len(rows) == 0 {
 				card(c, func() {
-					emptyState(c, "还没有供应商", "先建一个供应商，再为它添加凭据与模型")
+					emptyStateAction(c, "还没有供应商", "先建一个供应商，再为它添加凭据与模型", func() {
+						if primaryIconButton(c, iconPlus(), "新建供应商").Clicked() {
+							s.openNewProvider()
+						}
+					})
 				})
 				return
 			}
@@ -346,18 +350,20 @@ func (s *uiState) modelsPage(c *ui.Context) {
 			s.errorLine(c)
 
 			ui.Row(c).Gap(spS).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "搜索").FontSize(11).TextColor(t.TextMuted)
+				ui.Icon(c, iconSearch()).FontSize(13).TextColor(t.TextMuted)
+				// The catalogue is already in memory; filtering stays local, so
+				// typing never round-trips to the store or shows a spinner.
 				query := s.modelQuery
 				if ui.TextInput(c, &query).Width(220).Placeholder("对外名 / 上游名").Changed() {
 					s.modelQuery = query
-					s.reload()
+					s.filterModels()
 				}
 				ui.Spacer(c)
 				pill(c, fmt.Sprintf("%d 个", len(s.models)), t.TextMuted, t.TextMuted.Alpha(0.1))
-				if ui.Button(c, "添加模型").Clicked() {
+				if iconButton(c, iconPlus(), "添加模型").Clicked() {
 					s.openModelForm()
 				}
-				if ui.PrimaryButton(c, "从上游拉取").Clicked() {
+				if primaryIconButton(c, iconDownload(), "从上游拉取").Clicked() {
 					s.openDiscover()
 				}
 			})
@@ -365,7 +371,11 @@ func (s *uiState) modelsPage(c *ui.Context) {
 			rows := s.models
 			if len(rows) == 0 {
 				card(c, func() {
-					emptyState(c, "还没有模型", "点击「添加模型」手动添加，或「从上游拉取」从供应商目录勾选导入")
+					hint := "点击「添加模型」手动添加，或「从上游拉取」从供应商目录勾选导入"
+					if s.modelQuery != "" {
+						hint = "换一个关键字试试，或清空搜索后再添加"
+					}
+					emptyState(c, "没有匹配的模型", hint)
 				})
 				return
 			}
@@ -387,7 +397,7 @@ func (s *uiState) modelCard(c *ui.Context, index int, m admin.ModelView) {
 		Background(t.Surface).Border(1, t.Border).Children(func() {
 		ui.Row(c).Gap(spS).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, m.PublicName).FontSize(12).Bold().SingleLine().Grow(1).Tooltip(m.PublicName)
-			if ui.Button(c, "复制").FontSize(10).Padding(2, 8).Clicked() {
+			if iconButton(c, iconCopy(), "复制").FontSize(10).Padding(2, 8).Clicked() {
 				c.WriteClipboard(m.PublicName)
 				s.flash("已复制到剪贴板", false)
 			}
@@ -417,7 +427,7 @@ func (s *uiState) modelCard(c *ui.Context, index int, m admin.ModelView) {
 
 		price := "价格未设置"
 		if m.InputPrice != 0 || m.OutputPrice != 0 {
-			price = fmt.Sprintf("输入 %s · 输出 %s（每百万 token）",
+			price = fmt.Sprintf("输入 $%s · 输出 $%s（每百万 token）",
 				fmtMoney(m.InputPrice), fmtMoney(m.OutputPrice))
 		}
 		ui.Text(c, price).FontSize(10).TextColor(t.TextMuted).SingleLine()
@@ -433,7 +443,8 @@ func (s *uiState) modelCard(c *ui.Context, index int, m admin.ModelView) {
 			statusPill(c, m.Enabled, "已启用", "已停用", false)
 		})
 		if !m.Routable && m.RoutableReason != "" {
-			ui.Text(c, m.RoutableReason).FontSize(10).TextColor(t.Warning).SingleLine()
+			reason := routableReasonLabel(m.RoutableReason)
+			ui.Text(c, reason).FontSize(10).TextColor(t.Warning).SingleLine().Tooltip(reason)
 		}
 	})
 }
@@ -527,7 +538,7 @@ func (s *uiState) modelDialog(c *ui.Context) {
 						id = s.modelFormProviderName() + "/…"
 					}
 					ui.Text(c, id).FontSize(12).Bold().SingleLine().Grow(1).Tooltip(id)
-					copyBtn := ui.Button(c, "复制 ID").FontSize(10).Padding(2, 8)
+					copyBtn := iconButton(c, iconCopy(), "复制 ID").FontSize(10).Padding(2, 8)
 					if strings.TrimSpace(s.modelFormUpstream) == "" && s.modelFormIsNew {
 						copyBtn.Disabled(true)
 					}
@@ -635,7 +646,7 @@ func (s *uiState) discoverDialog(c *ui.Context) {
 					s.discoverError = ""
 					s.discoverSummary = ""
 				}
-				if ui.Button(c, "拉取模型列表").Disabled(s.discoverLoading).Clicked() {
+				if iconButton(c, iconDownload(), "拉取模型列表").Disabled(s.discoverLoading).Clicked() {
 					s.fetchDiscovered()
 				}
 			})
@@ -666,7 +677,7 @@ func (s *uiState) discoverDialog(c *ui.Context) {
 
 		ui.Row(c).Gap(spS).Children(func() {
 			checked := s.discoverCheckedCount()
-			importBtn := ui.PrimaryButton(c, fmt.Sprintf("导入所选（%d）", checked))
+			importBtn := primaryIconButton(c, iconDownload(), fmt.Sprintf("导入所选（%d）", checked))
 			if checked == 0 || s.discoverImporting {
 				importBtn.Disabled(true)
 			}
@@ -758,7 +769,7 @@ func (s *uiState) credentialsPage(c *ui.Context) {
 			ui.Row(c).Gap(spS).AlignItems(ui.Center).Children(func() {
 				pill(c, fmt.Sprintf("%d 个", len(s.credentials)), t.TextMuted, t.TextMuted.Alpha(0.1))
 				ui.Spacer(c)
-				if ui.Button(c, "刷新额度").Clicked() {
+				if iconButton(c, iconRefresh(), "刷新额度").Clicked() {
 					s.run("刷新额度", func() error {
 						_, err := s.app.Admin.RefreshAllUsage(s.ctx())
 						return err
@@ -769,7 +780,11 @@ func (s *uiState) credentialsPage(c *ui.Context) {
 			rows := s.credentials
 			if len(rows) == 0 {
 				card(c, func() {
-					emptyState(c, "还没有凭据", "在供应商页添加上游密钥，或从 CLI 登录导入")
+					emptyStateAction(c, "还没有凭据", "在供应商页添加上游密钥，或从 CLI 登录导入", func() {
+						if iconButton(c, iconProviders(), "前往供应商页").Clicked() {
+							s.navigate("/providers")
+						}
+					})
 				})
 				return
 			}
@@ -881,22 +896,28 @@ func (s *uiState) keysPage(c *ui.Context) {
 			panel(c, "新建客户端密钥", func() {
 				ui.Row(c).Gap(spS).AlignItems(ui.Center).Children(func() {
 					ui.TextInput(c, &s.newKeyName).Width(220).Placeholder("名称，例如 codex-local")
-					if ui.PrimaryButton(c, "创建").Clicked() {
+					if primaryIconButton(c, iconPlus(), "创建").Clicked() {
 						s.createClientKey()
 					}
 				})
 				if s.createdToken != "" {
 					ui.Row(c).FillWidth().Padding(8, 12).Radius(8).
 						Background(t.Accent.Alpha(0.1)).Gap(spS).AlignItems(ui.Center).Children(func() {
-						ui.Text(c, "明文（仅此一次）:").FontSize(11).TextColor(t.Accent)
-						ui.Text(c, s.createdToken).FontSize(11).Bold().SingleLine().Grow(1)
-						if ui.Button(c, "复制").FontSize(11).Padding(2, 8).Clicked() {
+						ui.Text(c, "明文:").FontSize(11).TextColor(t.Accent)
+						ui.Text(c, s.createdToken).FontSize(11).Bold().SingleLine().Grow(1).Tooltip(s.createdToken)
+						if iconButton(c, iconCopy(), "复制").FontSize(11).Padding(2, 8).Clicked() {
 							c.WriteClipboard(s.createdToken)
 							s.flash("已复制到剪贴板", false)
 						}
+						// The banner answers only to its owner: closing it (or
+						// leaving the page) clears it from state. The plaintext
+						// itself stays retrievable through the row actions.
+						if ui.Button(c, "关闭").FontSize(11).Padding(2, 8).Clicked() {
+							s.createdToken = ""
+						}
 					})
 				}
-				ui.Text(c, "密钥只存 SHA-256 哈希；关闭提示后无法再次取回明文。").FontSize(10).TextColor(t.TextMuted)
+				ui.Text(c, "密钥加密存储；校验用 SHA-256 哈希，行操作里可随时取回明文。").FontSize(10).TextColor(t.TextMuted)
 			})
 
 			rows := s.clientKeys
@@ -964,6 +985,9 @@ func (s *uiState) keysPage(c *ui.Context) {
 // keyRowActions is the dropdown of one client key row.
 func (s *uiState) keyRowActions(c *ui.Context, index int, entry store.ClientKey) {
 	rowActions(c, func(m *ui.Menu) {
+		if m.Item("复制").Chosen() {
+			s.copyClientKey(c, index)
+		}
 		if m.Item("轮换").Chosen() {
 			s.rotateClientKey(index)
 		}
@@ -1032,17 +1056,18 @@ func (s *uiState) endpointsPage(c *ui.Context) {
 					}
 				})
 			})
-			ui.Text(c, "自定义端点通过 HTTP API 创建；界面在后续版本补表单。").FontSize(10).TextColor(t.TextMuted)
+			ui.Text(c, "自定义端点当前通过管理 API 创建（见 docs/05 契约）。").FontSize(10).TextColor(t.TextMuted)
 		})
 	})
 }
 
-// infoRow is a label/value line in a detail panel.
+// infoRow is a label/value line in a detail panel. Long values truncate, so
+// the full text rides along as a tooltip.
 func (s *uiState) infoRow(c *ui.Context, label, value string) {
 	t := c.Theme()
 	ui.Row(c).Gap(spS).Children(func() {
 		ui.Text(c, label).FontSize(11).TextColor(t.TextMuted).Width(96)
-		ui.Text(c, value).FontSize(11).SingleLine()
+		ui.Text(c, value).FontSize(11).SingleLine().Tooltip(value)
 	})
 }
 

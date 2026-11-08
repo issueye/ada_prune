@@ -92,6 +92,16 @@ func TestRenderPages(t *testing.T) {
 	}
 	t.Logf("rendered %d pages to %s", len(pages), out)
 
+	// The settings page's left/right layout: render the watchdog section too.
+	state.page = "/settings"
+	if err := state.refresh(); err != nil {
+		t.Fatalf("refresh settings: %v", err)
+	}
+	state.settingsSection = "看门狗"
+	tt.Frame()
+	writePNG(t, tt, filepath.Join(out, "settings-watchdog.png"))
+	state.settingsSection = "服务"
+
 	// The provider form and detail panel are states, not pages: render them too.
 	state.page = "/providers"
 	if err := state.refresh(); err != nil {
@@ -201,6 +211,17 @@ func TestRenderPages(t *testing.T) {
 	state.createdToken = "sk-prune-0123456789abcdef0123456789abcdef"
 	tt.Frame()
 	writePNG(t, tt, filepath.Join(out, "keys-created.png"))
+
+	// The folded navigation rail: icons only, the toggle at the bottom.
+	state.createdToken = ""
+	state.sidebarCollapsed = true
+	state.page = "/"
+	if err := state.refresh(); err != nil {
+		t.Fatalf("refresh dashboard folded: %v", err)
+	}
+	tt.Frame()
+	writePNG(t, tt, filepath.Join(out, "sidebar-collapsed.png"))
+	state.sidebarCollapsed = false
 }
 
 // writePNG saves the current frame.

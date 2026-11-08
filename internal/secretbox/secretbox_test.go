@@ -1,6 +1,7 @@
 package secretbox
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -42,14 +43,16 @@ func TestEncryptUsesFreshNonce(t *testing.T) {
 func TestDecryptRejectsTamperedCiphertext(t *testing.T) {
 	box, _ := FromKey(make([]byte, KeySize))
 	sealed, _ := box.Encrypt("secret")
-	// Flip the last character of the base64 payload.
-	b := []byte(sealed)
-	if b[len(b)-1] == 'A' {
-		b[len(b)-1] = 'B'
-	} else {
-		b[len(b)-1] = 'A'
+	// Tamper a middle byte of the payload: decode, flip, re-encode. Flipping
+	// the last base64 character is not reliable — the decoder ignores the
+	// final character's non-zero padding bits, and a one-in-four chance of
+	// those bits carrying the whole change made this test flaky.
+	raw, err := base64.RawStdEncoding.DecodeString(sealed)
+	if err != nil {
+		t.Fatalf("decode sealed: %v", err)
 	}
-	if _, err := box.Decrypt(string(b)); err == nil {
+	raw[len(raw)/2] ^= 0x40
+	if _, err := box.Decrypt(base64.RawStdEncoding.EncodeToString(raw)); err == nil {
 		t.Fatal("tampered ciphertext decrypted without error")
 	}
 }

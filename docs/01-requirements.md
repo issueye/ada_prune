@@ -51,7 +51,7 @@
 | 额度策略 | QuotaPolicy | 适配器可选实现：解释上游「没钱了/超额了」并给出恢复时间 |
 | 模型 | Model | 供应商下的可调用模型：对外名、上游名、协议、价格、能力 |
 | 路由模型 | RouteModel | 把多个模型聚合成一个对外名，按权重/优先级选择（可选能力） |
-| 客户端密钥 | ClientKey | 网关签发给下游工具的密钥 `sk-prune-*`，只存哈希 |
+| 客户端密钥 | ClientKey | 网关签发给下游工具的密钥 `sk-prune-*`，哈希校验 + 加密副本 |
 | 端点 | Endpoint | 对外路径 + 入站协议 + 目标模型（内置三条 + 可选自定义） |
 | 入站协议 | Inbound Protocol | 下游使用的协议：`openai_chat` / `openai_responses` / `anthropic` |
 | 上游协议 | Upstream Protocol | 适配器实际使用的协议，由 `model.upstream_protocol` + `provider.kind` 决定 |
@@ -118,7 +118,8 @@
 
 ### 3.5 F5 客户端密钥与端点
 
-- 客户端密钥：`sk-prune-<32hex>`，创建时**仅返回一次明文**，落库只存 `key_hash` + `key_prefix`。
+- 客户端密钥：`sk-prune-<32hex>`，落库存 `key_hash`（数据面校验）+ `key_prefix` +
+  `key_encrypted`（secretbox 加密副本，控制面可取回；明文只在创建/轮换时返回一次）。
   - 字段：`name`、`enabled`、`allowed_models`（空=全部）、`allowed_ips`（CIDR 列表）、
     `quota_tokens`（0=不限）、`quota_used`、`expires_at`、`remark`；
   - 支持启用/停用、用量重置、轮换（重新签发）、删除；
@@ -192,7 +193,7 @@
 | 兼容性 | 下游与官方 SDK 兼容（OpenAI Chat/Responses、Anthropic Messages）；上游接入通过适配器扩展，不修改主干 |
 | 性能 | 网关自身开销（不含上游）P95 < 20ms；适配器与 IR 层零网络依赖（可纯函数单测） |
 | 流式 | 边收边发、`Flush` 即时；客户端断开即取消上游；`WriteTimeout` 必须为 0 |
-| 安全 | 上游密钥 AES-256-GCM 落库；客户端密钥只存哈希；日志禁打印明文密钥与完整报文；管理写操作校验同源 Origin，支持 `PRUNE_ADMIN_TOKEN`（常数时间比较） |
+| 安全 | 上游密钥 AES-256-GCM 落库；客户端密钥哈希校验 + secretbox 加密副本（明文不进日志与 HTTP 出参）；日志禁打印明文密钥与完整报文；管理写操作校验同源 Origin，支持 `PRUNE_ADMIN_TOKEN`（常数时间比较） |
 | 可用 | 存储失败降级内存；上游失败统一 502/透传语义；单二进制、无外部依赖 |
 | 可测试 | IR/适配器纯函数单测；`httptest` 假上游端到端；金标准报文比对 |
 | 可观测 | 结构化行日志（含 path/model/provider/duration）；`/health` |

@@ -7,6 +7,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -75,6 +76,42 @@ type uiState struct {
 	newKeyName    string
 	createdToken  string
 	settingsDirty bool
+	settingsError string
+
+	// Destructive-action confirmation. confirmAction runs only when the
+	// dialog's confirm button is chosen; Escape or Cancel drops it.
+	confirmOpen    bool
+	confirmTitle   string
+	confirmMessage string
+	confirmLabel   string
+	confirmAction  func()
+
+	// Command palette (Cmd+K): one search box over pages and global actions.
+	paletteOpen  bool
+	paletteQuery string
+
+	// Request log paging and the live tail the background poll honors. The
+	// tail only follows page 1: an older page must not shift under the reader
+	// as new requests land.
+	logPage     int
+	logPageSize int
+	liveTail    bool
+
+	// The whole model catalogue, for the search box's local filtering.
+	modelsAll []admin.ModelView
+
+	// Monotonic counter of background loads; only the newest one may apply,
+	// so a slow fetch of a page the user already left cannot win.
+	loadSeq uint64
+
+	// The address the gateway actually bound at startup. The configured port
+	// can drift: the desktop shell scans forward when the default is taken.
+	boundHost string
+	boundPort int
+
+	// sidebarCollapsed folds the navigation to an icon rail. The choice
+	// persists across restarts in the settings store.
+	sidebarCollapsed bool
 
 	// Provider form. formOpen shows the panel; formIsNew decides whether saving
 	// creates or updates.
@@ -145,6 +182,11 @@ type uiState struct {
 	retentionText  string
 	maxInflightTxt string
 	defaultModel   string
+	// Watchdog timeouts in seconds; the config stores milliseconds.
+	streamIdleText    string
+	nonStreamIdleText string
+	// settingsSection is the left-hand category the settings page shows.
+	settingsSection string
 }
 
 // routeMemberDraft is one model row of the route form. Priority stays text so
@@ -157,12 +199,18 @@ type routeMemberDraft struct {
 	Enabled  bool
 }
 
+// logPageSizeOptions are the page sizes the log pager offers, smallest first.
+var logPageSizeOptions = []string{"20", "50", "100", "200"}
+
 func newUIState(a *app.App) *uiState {
 	s := &uiState{
 		app:         a,
 		page:        "/",
 		logEndpoint: "全部",
 		logStatus:   "全部",
+		logPage:     1,
+		logPageSize: 20,
+		liveTail:    true,
 		usageGroup:  "day",
 		usageRange:  "30d",
 		providerSel: -1,
@@ -170,7 +218,27 @@ func newUIState(a *app.App) *uiState {
 		keySel:      -1,
 		logSel:      -1,
 	}
+	// The collapsed sidebar survives restarts; a missing or unreadable
+	// setting just means the default (expanded).
+	if v, err := a.Store.GetSetting(settingSidebarCollapsed); err == nil && v == "1" {
+		s.sidebarCollapsed = true
+	}
 	return s
+}
+
+// settingSidebarCollapsed stores the sidebar's folded state between runs.
+const settingSidebarCollapsed = "ui.sidebarCollapsed"
+
+// toggleSidebar folds or unfolds the navigation rail and remembers the choice.
+func (s *uiState) toggleSidebar() {
+	s.sidebarCollapsed = !s.sidebarCollapsed
+	value := "0"
+	if s.sidebarCollapsed {
+		value = "1"
+	}
+	if err := s.app.Store.SetSetting(settingSidebarCollapsed, value); err != nil {
+		s.flash("无法保存界面偏好: "+err.Error(), true)
+	}
 }
 
 // pageTitles is the header of each page.
@@ -190,10 +258,12 @@ var pageTitles = map[string]pageTitle{
 	"/about":        {"关于", "版本、数据目录与运行状态"},
 }
 
-// navItem is one sidebar entry.
+// navItem is one sidebar entry. Icon is the stroke glyph beside the label;
+// it is a lazy parse so the SVGs build on first draw, not at init.
 type navItem struct {
 	Path  string
 	Label string
+	Icon  func() *ui.SVG
 }
 
 // navGroups is the sidebar structure.
@@ -202,21 +272,21 @@ var navGroups = []struct {
 	Items []navItem
 }{
 	{"监控", []navItem{
-		{"/", "总览"},
-		{"/logs", "请求日志"},
-		{"/usage", "用量统计"},
+		{"/", "总览", iconDashboard},
+		{"/logs", "请求日志", iconLogs},
+		{"/usage", "用量统计", iconUsage},
 	}},
 	{"网关", []navItem{
-		{"/providers", "供应商"},
-		{"/models", "模型"},
-		{"/route-models", "路由模型"},
-		{"/credentials", "凭据"},
-		{"/keys", "客户端密钥"},
+		{"/providers", "供应商", iconProviders},
+		{"/models", "模型", iconModels},
+		{"/route-models", "路由模型", iconRoutes},
+		{"/credentials", "凭据", iconCredentials},
+		{"/keys", "客户端密钥", iconKeys},
 	}},
 	{"系统", []navItem{
-		{"/endpoints", "端点"},
-		{"/settings", "设置"},
-		{"/about", "关于"},
+		{"/endpoints", "端点", iconEndpoints},
+		{"/settings", "设置", iconSettings},
+		{"/about", "关于", iconAbout},
 	}},
 }
 
@@ -226,6 +296,10 @@ type fetched struct {
 	status   *admin.Status
 	lists    *lists
 	settings *admin.SettingsView
+	adapters []provider.Descriptor
+	// logPageFix carries a corrected log page when the fetched offset fell
+	// past the end of the log (rows deleted under the reader).
+	logPageFix int
 }
 
 type lists struct {
@@ -248,17 +322,25 @@ func (s *uiState) reload() { s.load(true) }
 func (s *uiState) reloadQuiet() { s.load(false) }
 
 func (s *uiState) load(showSpinner bool) {
-	if s.win == nil || s.loading {
+	if s.win == nil {
 		return
 	}
-	page := s.page
 	if showSpinner {
 		s.loading = true
 	}
+	// Only the newest load may apply. A filter change must never be swallowed
+	// because an older load is still in flight, and a slow answer for a page
+	// or filter the user already left must not overwrite fresher data.
+	s.loadSeq++
+	seq := s.loadSeq
+	page := s.page
 	go func() {
 		f, err := s.fetch(page)
 		// Every mutation of the state happens on the main thread.
 		s.win.Update(func() {
+			if seq != s.loadSeq {
+				return
+			}
 			if showSpinner {
 				s.loading = false
 			}
@@ -300,9 +382,10 @@ func (s *uiState) fetch(page string) (fetched, error) {
 		f.status = &st
 	}
 	// The adapter catalogue drives the provider form's kind list, so every page
-	// that can open the form needs it.
+	// that can open the form needs it. It lands with the fetched payload and is
+	// applied on the main thread, like every other state write.
 	if descriptors, adapterErr := s.app.Admin.Adapters(ctx); adapterErr == nil {
-		s.adapters = descriptors
+		f.adapters = descriptors
 	}
 
 	switch page {
@@ -315,7 +398,15 @@ func (s *uiState) fetch(page string) (fetched, error) {
 		f.lists = &lists{providers: rows}
 
 	case "/logs":
-		q := admin.LogsQuery{Limit: 200}
+		page := s.logPage
+		size := s.logPageSize
+		if page < 1 {
+			page = 1
+		}
+		if size < 1 {
+			size = 20
+		}
+		q := admin.LogsQuery{Limit: size, Offset: (page - 1) * size}
 		if s.logEndpoint != "" && s.logEndpoint != "全部" {
 			q.Endpoint = s.logEndpoint
 		}
@@ -325,6 +416,18 @@ func (s *uiState) fetch(page string) (fetched, error) {
 		pageData, err := s.app.Admin.Logs(ctx, q)
 		if err != nil {
 			return f, err
+		}
+		// The log can shrink under the reader (retention cleanup): an offset
+		// past the end lands on the last page that still has rows, so the
+		// user sees history instead of an empty page.
+		if len(pageData.Rows) == 0 && pageData.Total > 0 && int64(q.Offset) >= pageData.Total {
+			page = int((pageData.Total + int64(size) - 1) / int64(size))
+			q.Offset = (page - 1) * size
+			pageData, err = s.app.Admin.Logs(ctx, q)
+			if err != nil {
+				return f, err
+			}
+			f.logPageFix = page
 		}
 		f.lists = &lists{logs: pageData}
 
@@ -351,7 +454,9 @@ func (s *uiState) fetch(page string) (fetched, error) {
 		f.lists = &lists{providers: rows}
 
 	case "/models":
-		rows, err := s.app.Admin.ListModels(ctx, admin.ModelFilterInput{Query: s.modelQuery})
+		// The whole catalogue loads once; the search box filters it locally, so
+		// typing never waits on the store and never shows a spinner.
+		rows, err := s.app.Admin.ListModels(ctx, admin.ModelFilterInput{})
 		if err != nil {
 			return f, err
 		}
@@ -413,6 +518,9 @@ func (s *uiState) apply(page string, f fetched) {
 	if f.status != nil {
 		s.status2 = *f.status
 	}
+	if f.adapters != nil {
+		s.adapters = f.adapters
+	}
 	if f.settings != nil {
 		s.settings = *f.settings
 		s.portText = strconv.Itoa(f.settings.Port)
@@ -421,6 +529,12 @@ func (s *uiState) apply(page string, f fetched) {
 		s.retentionText = strconv.Itoa(f.settings.LogRetentionDays)
 		s.maxInflightTxt = strconv.FormatInt(f.settings.MaxInflight, 10)
 		s.defaultModel = f.settings.DefaultModel
+		// The watchdogs display in seconds; the config stores milliseconds.
+		s.streamIdleText = strconv.FormatInt(f.settings.StreamIdleMs/1000, 10)
+		s.nonStreamIdleText = strconv.FormatInt(f.settings.NonStreamIdleMs/1000, 10)
+		if s.settingsSection == "" {
+			s.settingsSection = "服务"
+		}
 	}
 	if f.lists == nil {
 		return
@@ -429,8 +543,27 @@ func (s *uiState) apply(page string, f fetched) {
 	case "/":
 		s.providers = f.lists.providers
 	case "/logs":
+		// The fetch may have corrected an out-of-range page (rows deleted
+		// under the reader): adopt the page the rows actually came from.
+		if f.logPageFix > 0 {
+			s.logPage = f.logPageFix
+		}
+		// The 5s poll must not cancel the row the user is reading: match the
+		// selection by request id, and drop it only when the row is gone.
+		selected := int64(-1)
+		if s.logSel >= 0 && s.logSel < len(s.logs.Rows) {
+			selected = s.logs.Rows[s.logSel].ID
+		}
 		s.logs = f.lists.logs
 		s.logSel = -1
+		if selected >= 0 {
+			for i, row := range s.logs.Rows {
+				if row.ID == selected {
+					s.logSel = i
+					break
+				}
+			}
+		}
 	case "/usage":
 		s.usage = f.lists.usage
 		s.usageDaily = f.lists.usageDaily
@@ -440,11 +573,13 @@ func (s *uiState) apply(page string, f fetched) {
 			s.providerSel = -1
 		}
 	case "/models":
-		s.models = f.lists.models
+		s.modelsAll = f.lists.models
+		s.filterModels()
 		s.providers = f.lists.providers
 	case "/route-models":
 		s.routeModels = f.lists.routeModels
 		s.models = f.lists.models
+		s.modelsAll = f.lists.models
 	case "/credentials":
 		s.credentials = f.lists.credentials
 		if s.credSel >= len(s.credentials) {
@@ -464,9 +599,114 @@ func (s *uiState) apply(page string, f fetched) {
 func (s *uiState) onPageChange() {
 	s.status = ""
 	s.isErr = false
+	// The log tail restarts at its newest page on every fresh visit.
+	s.logPage = 1
+	if s.page != "/keys" {
+		// The one-time plaintext never outlives its page: leaving /keys wipes
+		// it, so a secret cannot sit unnoticed in a panel the user forgot.
+		s.createdToken = ""
+	}
 	s.usage = store.UsagePage{}
 	s.usageDaily = store.UsagePage{}
 	s.logs = store.LogsPage{}
+	s.reload()
+}
+
+// navigate switches pages programmatically — shortcuts, the palette, in-page
+// links — and loads the target, the same path a sidebar click takes.
+func (s *uiState) navigate(path string) {
+	if path == s.page {
+		return
+	}
+	s.page = path
+	s.onPageChange()
+}
+
+// navItems flattens the sidebar groups in display order; the number shortcuts
+// and the palette both address pages by this order.
+func navItems() []navItem {
+	var out []navItem
+	for _, group := range navGroups {
+		out = append(out, group.Items...)
+	}
+	return out
+}
+
+// dialogOpen reports whether a modal or confirmation covers the window: window
+// shortcuts must not act on the page underneath it.
+func (s *uiState) dialogOpen() bool {
+	return s.formOpen || s.modelFormOpen || s.discoverOpen || s.routeFormOpen ||
+		s.paletteOpen || s.confirmOpen
+}
+
+// confirm asks before a destructive action runs. The label names the confirm
+// button (删除, 轮换, …); Escape or Cancel drops the action.
+func (s *uiState) confirm(title, message, label string, action func()) {
+	s.confirmOpen = true
+	s.confirmTitle = title
+	s.confirmMessage = message
+	s.confirmLabel = label
+	s.confirmAction = action
+}
+
+// filterModels applies the search box locally: the page holds the whole
+// catalogue, so typing filters in memory with no round trip.
+func (s *uiState) filterModels() {
+	query := strings.ToLower(strings.TrimSpace(s.modelQuery))
+	if query == "" {
+		s.models = s.modelsAll
+		return
+	}
+	out := make([]admin.ModelView, 0, len(s.modelsAll))
+	for _, m := range s.modelsAll {
+		if strings.Contains(strings.ToLower(m.PublicName), query) ||
+			strings.Contains(strings.ToLower(m.UpstreamName), query) {
+			out = append(out, m)
+		}
+	}
+	s.models = out
+}
+
+// logTotalPages is the page count of the current log filter and page size, at
+// least one.
+func (s *uiState) logTotalPages() int {
+	size := s.logPageSize
+	if size < 1 {
+		size = 20
+	}
+	pages := int((s.logs.Total + int64(size) - 1) / int64(size))
+	if pages < 1 {
+		return 1
+	}
+	return pages
+}
+
+// setLogPageSize adopts a chosen page size and returns to the first page, so
+// the new window always opens on the newest rows.
+func (s *uiState) setLogPageSize(size int) {
+	if size < 1 || size == s.logPageSize {
+		return
+	}
+	s.logPageSize = size
+	s.logPage = 1
+	s.logSel = -1
+	s.reload()
+}
+
+// moveLogPage flips to the given log page (1-based) and reloads. The pager
+// disables out-of-range moves, but the clamp stays as a guard.
+func (s *uiState) moveLogPage(page int) {
+	if page < 1 {
+		page = 1
+	}
+	if max := s.logTotalPages(); page > max {
+		page = max
+	}
+	if page == s.logPage {
+		return
+	}
+	s.logPage = page
+	s.logSel = -1
 	s.reload()
 }
 
@@ -575,9 +815,14 @@ func (s *uiState) deleteProvider(index int) {
 		return
 	}
 	id := rows[index].ID
-	s.run("删除供应商", func() error {
-		return s.app.Admin.DeleteProvider(context.Background(), id)
-	})
+	name := rows[index].Name
+	s.confirm("删除供应商 "+name+"？",
+		"将一并删除它的凭据与模型。若仍有启用的模型，删除会被服务端拒绝。此操作不可撤销。",
+		"删除", func() {
+			s.run("删除供应商", func() error {
+				return s.app.Admin.DeleteProvider(context.Background(), id)
+			})
+		})
 }
 
 func (s *uiState) toggleModel(index int, enabled bool) {
@@ -597,9 +842,14 @@ func (s *uiState) deleteModel(index int) {
 		return
 	}
 	id := rows[index].ID
-	s.run("删除模型", func() error {
-		return s.app.Admin.DeleteModel(context.Background(), id)
-	})
+	name := rows[index].PublicName
+	s.confirm("删除模型 "+name+"？",
+		"客户端将无法再用这个模型 ID 发起请求。若它仍是某个路由模型的成员，删除会被服务端拒绝。此操作不可撤销。",
+		"删除", func() {
+			s.run("删除模型", func() error {
+				return s.app.Admin.DeleteModel(context.Background(), id)
+			})
+		})
 }
 
 // ---- model form ----
@@ -987,9 +1237,14 @@ func (s *uiState) deleteRoute(index int) {
 		return
 	}
 	id := rows[index].ID
-	s.run("删除路由模型", func() error {
-		return s.app.Admin.DeleteRouteModel(context.Background(), id)
-	})
+	name := rows[index].Name
+	s.confirm("删除路由模型 "+name+"？",
+		"客户端请求这个 ID 的流量将立即失去路由，成员关系随级联删除。此操作不可撤销。",
+		"删除", func() {
+			s.run("删除路由模型", func() error {
+				return s.app.Admin.DeleteRouteModel(context.Background(), id)
+			})
+		})
 }
 
 // routeRoutable reports whether any enabled member can serve right now: the
@@ -1228,9 +1483,14 @@ func (s *uiState) deleteCredential(index int) {
 		return
 	}
 	id := rows[index].ID
-	s.run("删除凭据", func() error {
-		return s.app.Admin.DeleteCredential(context.Background(), id)
-	})
+	name := rows[index].Name
+	s.confirm("删除凭据 "+name+"？",
+		"该上游密钥立即不可用；若它是路由固定的凭据，固定设置一并清除。此操作不可撤销。",
+		"删除", func() {
+			s.run("删除凭据", func() error {
+				return s.app.Admin.DeleteCredential(context.Background(), id)
+			})
+		})
 }
 
 func (s *uiState) createClientKey() {
@@ -1251,7 +1511,7 @@ func (s *uiState) createClientKey() {
 			}
 			s.createdToken = created.Token
 			s.newKeyName = ""
-			s.flash("已创建，明文只显示这一次", false)
+			s.flash("已创建，可随时从行操作取回", false)
 			s.reloadQuiet()
 		})
 	}()
@@ -1263,21 +1523,26 @@ func (s *uiState) rotateClientKey(index int) {
 		return
 	}
 	id := rows[index].ID
-	go func() {
-		token, err := s.app.Admin.RotateClientKey(context.Background(), id)
-		if s.win == nil {
-			return
-		}
-		s.win.Update(func() {
-			if err != nil {
-				s.flash("轮换失败: "+err.Error(), true)
-				return
-			}
-			s.createdToken = token
-			s.flash("已轮换，旧密钥立即失效", false)
-			s.reloadQuiet()
+	name := rows[index].Name
+	s.confirm("轮换密钥 "+name+"？",
+		"旧明文立即失效，所有正在使用它的下游工具会断开；新明文会弹出，之后也可随时从行操作取回。",
+		"轮换", func() {
+			go func() {
+				token, err := s.app.Admin.RotateClientKey(context.Background(), id)
+				if s.win == nil {
+					return
+				}
+				s.win.Update(func() {
+					if err != nil {
+						s.flash("轮换失败: "+err.Error(), true)
+						return
+					}
+					s.createdToken = token
+					s.flash("已轮换，旧密钥立即失效", false)
+					s.reloadQuiet()
+				})
+			}()
 		})
-	}()
 }
 
 func (s *uiState) deleteClientKey(index int) {
@@ -1286,23 +1551,83 @@ func (s *uiState) deleteClientKey(index int) {
 		return
 	}
 	id := rows[index].ID
-	s.run("删除密钥", func() error {
-		return s.app.Admin.DeleteClientKey(context.Background(), id)
-	})
+	name := rows[index].Name
+	s.confirm("删除客户端密钥 "+name+"？",
+		"使用这个密钥的下游工具将立即收到 401，需要换新密钥才能恢复。此操作不可撤销。",
+		"删除", func() {
+			s.run("删除密钥", func() error {
+				return s.app.Admin.DeleteClientKey(context.Background(), id)
+			})
+		})
+}
+
+// copyClientKey decrypts the stored plaintext onto the clipboard. It runs on
+// the main thread on purpose: the reveal is one indexed read plus a decrypt,
+// and the clipboard write needs the render context.
+func (s *uiState) copyClientKey(c *ui.Context, index int) {
+	rows := s.clientKeys
+	if index < 0 || index >= len(rows) {
+		return
+	}
+	token, err := s.app.Admin.RevealClientKey(context.Background(), rows[index].ID)
+	if err != nil {
+		// Keys minted before encrypted storage have no plaintext to reveal;
+		// rotation is the way out, so say that instead of showing raw English.
+		if errors.Is(err, store.ErrClientKeyNotRecoverable) {
+			s.flash("该密钥创建于旧版本，无法取回明文；轮换一次即可获得可复制的新密钥", true)
+			return
+		}
+		s.flash("复制失败: "+err.Error(), true)
+		return
+	}
+	c.WriteClipboard(token)
+	s.flash("已复制到剪贴板", false)
 }
 
 func (s *uiState) saveSettings() {
+	// Field validation stays in the page: an invalid port silently falling
+	// back to the old value reads as "saved but nothing happened".
+	s.settingsError = ""
+	port, err := strconv.Atoi(strings.TrimSpace(s.portText))
+	if err != nil || port < 1 || port > 65535 {
+		s.settingsError = "端口必须是 1–65535 的整数"
+		return
+	}
+	host := strings.TrimSpace(s.hostText)
+	if host == "" {
+		s.settingsError = "监听地址不能为空"
+		return
+	}
+	inflight, err := strconv.ParseInt(strings.TrimSpace(s.maxInflightTxt), 10, 64)
+	if err != nil || inflight < 0 {
+		s.settingsError = "在途上限必须是不小于 0 的整数"
+		return
+	}
+	retention, err := strconv.Atoi(strings.TrimSpace(s.retentionText))
+	if err != nil || retention < 1 {
+		s.settingsError = "日志保留天数必须不小于 1"
+		return
+	}
+	streamIdle, err := strconv.Atoi(strings.TrimSpace(s.streamIdleText))
+	if err != nil || streamIdle < 1 || streamIdle > 3600 {
+		s.settingsError = "流式空闲超时必须是 1–3600 的整数（秒）"
+		return
+	}
+	nonStreamIdle, err := strconv.Atoi(strings.TrimSpace(s.nonStreamIdleText))
+	if err != nil || nonStreamIdle < 1 || nonStreamIdle > 3600 {
+		s.settingsError = "非流式空闲超时必须是 1–3600 的整数（秒）"
+		return
+	}
 	patch := map[string]any{
 		"logLevel":         s.levelText,
 		"defaultModel":     strings.TrimSpace(s.defaultModel),
-		"host":             strings.TrimSpace(s.hostText),
-		"logRetentionDays": atoiDefault(s.retentionText, s.settings.LogRetentionDays),
-	}
-	if port := atoiDefault(s.portText, s.settings.Port); port > 0 {
-		patch["port"] = port
-	}
-	if inflight, err := strconv.ParseInt(strings.TrimSpace(s.maxInflightTxt), 10, 64); err == nil {
-		patch["maxInflight"] = inflight
+		"host":             host,
+		"logRetentionDays": retention,
+		"port":             port,
+		"maxInflight":      inflight,
+		// The watchdogs apply to new upstream requests without a restart.
+		"streamIdleMs":    streamIdle * 1000,
+		"nonStreamIdleMs": nonStreamIdle * 1000,
 	}
 	go func() {
 		result, err := s.app.Admin.SaveSettings(context.Background(), patch)
@@ -1311,11 +1636,14 @@ func (s *uiState) saveSettings() {
 		}
 		s.win.Update(func() {
 			if err != nil {
+				s.settingsError = err.Error()
 				s.flash("保存失败: "+err.Error(), true)
 				return
 			}
+			s.settingsDirty = false
 			if len(result.RestartRequired) > 0 {
 				s.flash("已保存，需重启生效: "+strings.Join(result.RestartRequired, ", "), true)
+				s.reloadQuiet()
 				return
 			}
 			s.flash("设置已保存", false)
@@ -1747,11 +2075,3 @@ func sortStrings(values []string) {
 
 // router is exposed for the about page.
 func (s *uiState) router() *gateway.Router { return s.app.Router }
-
-func atoiDefault(text string, fallback int) int {
-	n, err := strconv.Atoi(strings.TrimSpace(text))
-	if err != nil {
-		return fallback
-	}
-	return n
-}

@@ -22,8 +22,24 @@ type upstream struct {
 	mu sync.Mutex
 	// rejectSecrets makes the given bearer secrets answer 402.
 	rejectSecrets map[string]bool
+	// truncate makes streams end after the text deltas, without a finish:
+	// the upstream died mid-answer.
+	truncate bool
 	// calls records the secrets that were used.
 	calls []string
+}
+
+// setTruncate flips the truncation mode for the streams served after it.
+func (u *upstream) setTruncate(on bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.truncate = on
+}
+
+func (u *upstream) truncating() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.truncate
 }
 
 func newUpstream(t *testing.T) *upstream {
@@ -55,7 +71,9 @@ func newUpstream(t *testing.T) *upstream {
 			lines := []string{
 				`{"type":"text-delta","text":"hello "}`,
 				`{"type":"text-delta","text":"stub"}`,
-				`{"type":"finish","finishReason":"stop","totalUsage":{"inputTokens":5,"outputTokens":2,"totalTokens":7}}`,
+			}
+			if !u.truncating() {
+				lines = append(lines, `{"type":"finish","finishReason":"stop","totalUsage":{"inputTokens":5,"outputTokens":2,"totalTokens":7}}`)
 			}
 			for _, line := range lines {
 				_, _ = io.WriteString(w, line+"\n")
@@ -258,6 +276,67 @@ func TestChatCompletionStreaming(t *testing.T) {
 	if assembled != "hello stub" {
 		t.Fatalf("assembled = %q\nstream:\n%s", assembled, text)
 	}
+
+	// A complete stream must carry no in-band error: the decoder's io.EOF is
+	// the end-of-stream signal, and treating it as a failure once made every
+	// stream end with an injected 502 event.
+	if strings.Contains(text, `"error"`) {
+		t.Fatalf("complete stream carried an in-band error:\n%s", text)
+	}
+
+	// The record agrees with the wire: 200, the finish reason, no error type.
+	rec := waitRecord(t, s, "/v1/chat/completions")
+	if rec.StatusCode != http.StatusOK || rec.ErrorType != "" || rec.FinishReason != "stop" {
+		t.Fatalf("record = status %d, error %q, finish %q; want 200, no error, stop",
+			rec.StatusCode, rec.ErrorType, rec.FinishReason)
+	}
+}
+
+// TestChatCompletionStreamTruncatedStillFails pins the red line the io.EOF fix
+// must not soften: an upstream that dies mid-answer is a 502 record and an
+// in-band error, never a fabricated completion.
+func TestChatCompletionStreamTruncatedStillFails(t *testing.T) {
+	up := newUpstream(t)
+	up.setTruncate(true)
+	s := newSocket(t, up.URL)
+
+	resp, body := postJSON(t, s, "/v1/chat/completions", map[string]any{
+		"model":    s.model,
+		"stream":   true,
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.StatusCode, body)
+	}
+	// Headers are already sent, so the failure travels inside the stream.
+	if !strings.Contains(string(body), `"error"`) {
+		t.Fatalf("truncated stream carried no in-band error:\n%s", body)
+	}
+
+	rec := waitRecord(t, s, "/v1/chat/completions")
+	if rec.StatusCode != http.StatusBadGateway || rec.ErrorType != "upstream_stream_error" {
+		t.Fatalf("record = status %d, error %q; want 502 upstream_stream_error",
+			rec.StatusCode, rec.ErrorType)
+	}
+	if rec.FinishReason != "" {
+		t.Fatalf("finish reason = %q, want none for a truncated stream", rec.FinishReason)
+	}
+}
+
+// waitRecord polls the store for the newest row of an endpoint; the recorder
+// persists calls off the hot path, so the row lands a moment after the answer.
+func waitRecord(t *testing.T, s socket, endpoint string) store.RequestRow {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		page, err := s.app.Store.ListRequests(store.LogsFilter{Endpoint: endpoint, Limit: 5})
+		if err == nil && len(page.Rows) > 0 {
+			return page.Rows[0]
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("no request recorded for %s", endpoint)
+	return store.RequestRow{}
 }
 
 func TestAnthropicInboundGetsAnthropicShape(t *testing.T) {
@@ -590,30 +669,57 @@ func TestModelsListingUsesNamespacedID(t *testing.T) {
 }
 
 // openaiUpstream is a fake OpenAI-compatible upstream.
-func openaiUpstream(t *testing.T) (*httptest.Server, *[]string) {
+func openaiUpstream(t *testing.T) (*httptest.Server, *[]string, *bool) {
 	t.Helper()
 	var bodies []string
+	// dropFinish makes the streaming handler end the SSE after the content
+	// chunk, without any finish_reason — an upstream that dies mid-answer.
+	dropFinish := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		bodies = append(bodies, string(raw))
+		var req struct {
+			Stream bool `json:"stream"`
+		}
+		_ = json.Unmarshal(raw, &req)
 		if strings.HasSuffix(r.URL.Path, "/responses") {
 			_, _ = io.WriteString(w, `{"id":"r1","object":"response","status":"completed","model":"gpt-upstream",
 				"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"from responses"}]}],
 				"usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}}`)
 			return
 		}
-		_, _ = io.WriteString(w, `{"id":"c1","object":"chat.completion","model":"gpt-upstream",
-			"choices":[{"index":0,"message":{"role":"assistant","content":"from openai"},"finish_reason":"stop"}],
-			"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}`)
+		if !req.Stream {
+			_, _ = io.WriteString(w, `{"id":"c1","object":"chat.completion","model":"gpt-upstream",
+				"choices":[{"index":0,"message":{"role":"assistant","content":"from openai"},"finish_reason":"stop"}],
+				"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}`)
+			return
+		}
+		// Streaming: content, then the finish chunk unless dropped.
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		lines := []string{
+			`data: {"id":"c1","object":"chat.completion.chunk","model":"gpt-upstream","choices":[{"index":0,"delta":{"content":"from openai"}}]}`,
+			`data: {"id":"c1","object":"chat.completion.chunk","model":"gpt-upstream","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		}
+		if dropFinish {
+			lines = lines[:1]
+		}
+		lines = append(lines, "data: [DONE]")
+		for _, line := range lines {
+			_, _ = io.WriteString(w, line+"\n\n")
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
 	}))
 	t.Cleanup(srv.Close)
-	return srv, &bodies
+	return srv, &bodies, &dropFinish
 }
 
 // newOpenAISocket builds a gateway whose only provider is OpenAI-compatible.
 func newOpenAISocket(t *testing.T, upstreamURL string) socket {
 	t.Helper()
-	_, srv := newServer(t, app.Options{})
+	a, srv := newServer(t, app.Options{})
 
 	status, provider := adminCall(t, srv, http.MethodPost, "/admin/api/providers", map[string]any{
 		"name":    "OpenAI",
@@ -647,13 +753,13 @@ func newOpenAISocket(t *testing.T, upstreamURL string) socket {
 		t.Fatalf("create key: %d %v", status, key)
 	}
 
-	return socket{server: srv, key: key["token"].(string), model: "gpt-cross", providerID: providerID}
+	return socket{app: a, server: srv, key: key["token"].(string), model: "gpt-cross", providerID: providerID}
 }
 
 // TestCrossProviderAnthropicInboundToOpenAIUpstream is the point of the whole
 // design: an Anthropic-shaped client served by an OpenAI upstream.
 func TestCrossProviderAnthropicInboundToOpenAIUpstream(t *testing.T) {
-	upstream, bodies := openaiUpstream(t)
+	upstream, bodies, _ := openaiUpstream(t)
 	s := newOpenAISocket(t, upstream.URL)
 
 	resp, body := postJSON(t, s, "/v1/messages", map[string]any{
@@ -707,7 +813,7 @@ func TestCrossProviderAnthropicInboundToOpenAIUpstream(t *testing.T) {
 // TestCrossProviderResponsesInboundToOpenAIUpstream covers the same path for the
 // Responses API.
 func TestCrossProviderResponsesInboundToOpenAIUpstream(t *testing.T) {
-	upstream, _ := openaiUpstream(t)
+	upstream, _, _ := openaiUpstream(t)
 	s := newOpenAISocket(t, upstream.URL)
 
 	// A second model speaks the Responses wire format on the same upstream.
@@ -752,7 +858,7 @@ func TestCrossProviderResponsesInboundToOpenAIUpstream(t *testing.T) {
 // TestOpenAIUpstreamPassesThroughChat stays in the same protocol: no conversion
 // should be observable to the client.
 func TestOpenAIUpstreamPassesThroughChat(t *testing.T) {
-	upstream, _ := openaiUpstream(t)
+	upstream, _, _ := openaiUpstream(t)
 	s := newOpenAISocket(t, upstream.URL)
 
 	resp, body := postJSON(t, s, "/v1/chat/completions", map[string]any{
@@ -774,6 +880,38 @@ func TestOpenAIUpstreamPassesThroughChat(t *testing.T) {
 	}
 	if len(decoded.Choices) == 0 || decoded.Choices[0].Message.Content != "from openai" {
 		t.Fatalf("choices = %+v", decoded.Choices)
+	}
+}
+
+// TestOpenAIStreamWithoutFinishStillFails pins the red line on the OpenAI
+// codec path: an upstream that streams content and then ends without any
+// finish_reason is a truncation — 502 in the record, an in-band error to the
+// client — never a clean 200 with [DONE].
+func TestOpenAIStreamWithoutFinishStillFails(t *testing.T) {
+	upstream, _, drop := openaiUpstream(t)
+	s := newOpenAISocket(t, upstream.URL)
+	*drop = true
+
+	resp, body := postJSON(t, s, "/v1/chat/completions", map[string]any{
+		"model":    s.model,
+		"stream":   true,
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.StatusCode, body)
+	}
+	// The content chunk went out, then the failure — inside the stream.
+	if !strings.Contains(string(body), `"error"`) {
+		t.Fatalf("finish-less stream carried no in-band error:\n%s", body)
+	}
+
+	rec := waitRecord(t, s, "/v1/chat/completions")
+	if rec.StatusCode != http.StatusBadGateway || rec.ErrorType != "upstream_stream_error" {
+		t.Fatalf("record = status %d, error %q; want 502 upstream_stream_error",
+			rec.StatusCode, rec.ErrorType)
+	}
+	if rec.FinishReason != "" {
+		t.Fatalf("finish reason = %q, want none", rec.FinishReason)
 	}
 }
 

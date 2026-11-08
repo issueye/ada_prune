@@ -82,6 +82,12 @@ func TestModelCardDeletesModel(t *testing.T) {
 	if err := tt.Click("删除"); err != nil {
 		t.Fatalf("choose delete: %v", err)
 	}
+	// A destructive action asks first: the confirmation names the model, and
+	// only the second click deletes.
+	tt.Frame()
+	if err := tt.Click("删除"); err != nil {
+		t.Fatalf("confirm delete: %v", err)
+	}
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -100,7 +106,7 @@ func TestModelCardDeletesModel(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("choosing 删除 should remove %q", upstream)
+	t.Fatalf("confirming 删除 should remove %q", upstream)
 }
 
 // TestModelEditDialog pins the edit flow: the dialog opens prefilled, saves the

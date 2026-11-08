@@ -290,13 +290,20 @@ func TestClientKeyLifecycle(t *testing.T) {
 		t.Fatalf("verified key = %+v", key)
 	}
 
-	// The plaintext is not stored anywhere.
+	// The plaintext is never stored in the clear.
 	var stored string
 	if err := s.DB().QueryRow(`SELECT key_hash FROM client_keys WHERE id = ?`, created.ID).Scan(&stored); err != nil {
 		t.Fatalf("read hash: %v", err)
 	}
 	if strings.Contains(stored, created.Token) {
 		t.Fatal("key_hash contains the plaintext token")
+	}
+	var cipher string
+	if err := s.DB().QueryRow(`SELECT key_encrypted FROM client_keys WHERE id = ?`, created.ID).Scan(&cipher); err != nil {
+		t.Fatalf("read cipher: %v", err)
+	}
+	if strings.Contains(cipher, created.Token) {
+		t.Fatal("key_encrypted contains the plaintext token")
 	}
 
 	// Disabling makes verification fail.
@@ -330,6 +337,62 @@ func TestClientKeyLifecycle(t *testing.T) {
 	}
 	if _, err := s.VerifyClientKey("sk-ccp-legacy"); !errors.Is(err, ErrClientKeyInvalid) {
 		t.Fatalf("foreign prefix = %v, want ErrClientKeyInvalid", err)
+	}
+}
+
+func TestClientKeyPlaintextRecovery(t *testing.T) {
+	s := newTestStore(t)
+
+	created, err := s.CreateClientKey(ClientKey{Name: "codex-local", Enabled: true})
+	if err != nil {
+		t.Fatalf("CreateClientKey: %v", err)
+	}
+	token, err := s.RevealClientKey(created.ID)
+	if err != nil {
+		t.Fatalf("RevealClientKey: %v", err)
+	}
+	if token != created.Token {
+		t.Fatalf("reveal = %q, want the minted token", token)
+	}
+
+	// Rotation replaces the recoverable copy along with the hash.
+	rotated, err := s.RotateClientKey(created.ID)
+	if err != nil {
+		t.Fatalf("RotateClientKey: %v", err)
+	}
+	if token, err = s.RevealClientKey(created.ID); err != nil || token != rotated {
+		t.Fatalf("reveal after rotate = %q, %v; want the rotated token", token, err)
+	}
+
+	// A row that predates encrypted storage has no cipher to open.
+	if _, err := s.DB().Exec(`UPDATE client_keys SET key_encrypted = NULL WHERE id = ?`, created.ID); err != nil {
+		t.Fatalf("clear key_encrypted: %v", err)
+	}
+	if _, err := s.RevealClientKey(created.ID); !errors.Is(err, ErrClientKeyNotRecoverable) {
+		t.Fatalf("reveal of a hash-only key = %v, want ErrClientKeyNotRecoverable", err)
+	}
+	if _, err := s.RevealClientKey(999); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("reveal of a missing key = %v, want ErrNotFound", err)
+	}
+}
+
+func TestMigrateBackfillsKeyEncryptedColumn(t *testing.T) {
+	s := newTestStore(t)
+
+	// Simulate a database an older binary made: today's schema already has the
+	// column, so drop it, then let Migrate restore it.
+	if _, err := s.DB().Exec(`ALTER TABLE client_keys DROP COLUMN key_encrypted`); err != nil {
+		t.Fatalf("simulate an old schema: %v", err)
+	}
+	if err := s.Migrate(); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	created, err := s.CreateClientKey(ClientKey{Name: "after-upgrade", Enabled: true})
+	if err != nil {
+		t.Fatalf("CreateClientKey: %v", err)
+	}
+	if token, err := s.RevealClientKey(created.ID); err != nil || token != created.Token {
+		t.Fatalf("reveal = %q, %v; want the minted token", token, err)
 	}
 }
 

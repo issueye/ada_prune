@@ -121,6 +121,18 @@ func New(opts Options) (*App, error) {
 		NonStreamIdle: time.Duration(snap.NonStreamIdleMs) * time.Millisecond,
 	})
 	relay.SetDefaultModel(snap.DefaultModel)
+	// The watchdogs are runtime-tunable from the settings page: every call
+	// reads the current snapshot, so a saved value applies to the next request
+	// without a restart. (The request-body cap in api.Server stays a startup
+	// value; this source governs the relay's own reads.)
+	relay.SetLimitsSource(func() gateway.Limits {
+		snap := cfg.Get()
+		return gateway.Limits{
+			MaxBodyBytes:  snap.MaxBodyMB << 20,
+			StreamIdle:    time.Duration(snap.StreamIdleMs) * time.Millisecond,
+			NonStreamIdle: time.Duration(snap.NonStreamIdleMs) * time.Millisecond,
+		}
+	})
 
 	a := &App{
 		Cfg:         cfg,

@@ -45,8 +45,11 @@ type chatMessage struct {
 }
 
 type chatToolCall struct {
-	ID       string `json:"id"`
-	Type     string `json:"type"`
+	ID   string `json:"id"`
+	Type string `json:"type"`
+	// Index identifies the call a streaming delta belongs to; absent in
+	// non-streaming messages.
+	Index    int `json:"index"`
 	Function struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -638,7 +641,8 @@ func (d *chatStreamDecoder) Next() (*ir.StreamChunk, error) {
 			}
 			usage.Normalize()
 			d.queue = append(d.queue, &ir.StreamChunk{Kind: ir.ChunkUsage, Usage: &usage})
-			continue
+			// No continue: compatible gateways fold the finish reason into the
+			// usage frame, so the choices below must still be examined.
 		}
 		if len(raw.Choices) == 0 {
 			continue
@@ -651,14 +655,18 @@ func (d *chatStreamDecoder) Next() (*ir.StreamChunk, error) {
 			d.queue = append(d.queue, &ir.StreamChunk{Kind: ir.ChunkThinking, Text: choice.Delta.ReasoningContent})
 		}
 		if len(choice.Delta.ToolCalls) > 0 {
-			tc := choice.Delta.ToolCalls[0]
-			d.queue = append(d.queue, &ir.StreamChunk{
-				Kind:       ir.ChunkToolCall,
-				Index:      choice.Index,
-				ToolCallID: tc.ID,
-				ToolName:   tc.Function.Name,
-				ArgsDelta:  argumentsString(tc.Function.Arguments),
-			})
+			for _, tc := range choice.Delta.ToolCalls {
+				d.queue = append(d.queue, &ir.StreamChunk{
+					Kind: ir.ChunkToolCall,
+					// The tool call's own index, not the choice's: clients
+					// reassemble argument fragments per call, and a delta may
+					// carry fragments of several parallel calls.
+					Index:      tc.Index,
+					ToolCallID: tc.ID,
+					ToolName:   tc.Function.Name,
+					ArgsDelta:  argumentsString(tc.Function.Arguments),
+				})
+			}
 		}
 		// A finish reason may share a frame with the last delta, so it is queued
 		// after the content instead of replacing it.
@@ -673,7 +681,12 @@ func (d *chatStreamDecoder) Next() (*ir.StreamChunk, error) {
 
 // NewStreamEncoder implements Codec.
 func (openAIChatCodec) NewStreamEncoder(w io.Writer) StreamEncoder {
-	return &chatStreamEncoder{writer: newSSEWriter(w), created: time.Now().Unix()}
+	return &chatStreamEncoder{
+		writer:      newSSEWriter(w),
+		created:     time.Now().Unix(),
+		toolByIndex: map[int]int{},
+		toolByID:    map[string]int{},
+	}
 }
 
 type chatStreamEncoder struct {
@@ -683,9 +696,16 @@ type chatStreamEncoder struct {
 	created  int64
 	usage    *ir.Usage
 	started  bool
-	toolIdx  int
 	finished bool
 	closed   bool
+	// toolIdx is the next wire index to hand out. Tool calls stream as many
+	// fragments that clients reassemble by the tool_calls array index, so the
+	// maps below give every fragment of one call the same slot: keyed by
+	// upstream call id when one is present, else by the chunk's tool-call
+	// index. Slots are allocated per call, never per chunk.
+	toolIdx     int
+	toolByIndex map[int]int
+	toolByID    map[string]int
 }
 
 // Write implements StreamEncoder.
@@ -701,7 +721,13 @@ func (e *chatStreamEncoder) Write(chunk *ir.StreamChunk) error {
 	case ir.ChunkThinking:
 		return e.emit(map[string]any{"reasoning_content": chunk.Text}, nil)
 	case ir.ChunkToolCall:
-		index := e.toolIdx
+		if chunk.ToolCallID == "" && chunk.ToolName == "" &&
+			chunk.ArgsDelta == "" && chunk.ArgsComplete == "" {
+			// A frame that names neither a call nor any arguments has nothing
+			// a client could reassemble; emitting it would open a phantom call.
+			return nil
+		}
+		index := e.toolSlotFor(chunk)
 		call := map[string]any{
 			"index": index,
 			"type":  "function",
@@ -715,7 +741,6 @@ func (e *chatStreamEncoder) Write(chunk *ir.StreamChunk) error {
 		if chunk.ToolName != "" {
 			call["function"].(map[string]any)["name"] = chunk.ToolName
 		}
-		e.toolIdx++
 		return e.emit(map[string]any{"tool_calls": []any{call}}, nil)
 	case ir.ChunkUsage:
 		e.usage = chunk.Usage
@@ -737,6 +762,33 @@ func (e *chatStreamEncoder) Write(chunk *ir.StreamChunk) error {
 	default:
 		return nil
 	}
+}
+
+// toolSlotFor maps one IR tool-call chunk onto a stable wire index. A call id
+// the encoder has already seen continues that call; an unseen call id opens a
+// new slot even when it reuses an index another call claimed (decoders that
+// cannot tell parallel calls apart leave the index at zero). A fragment
+// without an id joins whichever call claimed its index.
+func (e *chatStreamEncoder) toolSlotFor(chunk *ir.StreamChunk) int {
+	if chunk.ToolCallID != "" {
+		if slot, ok := e.toolByID[chunk.ToolCallID]; ok {
+			return slot
+		}
+		slot := e.toolIdx
+		e.toolIdx++
+		e.toolByID[chunk.ToolCallID] = slot
+		if _, claimed := e.toolByIndex[chunk.Index]; !claimed {
+			e.toolByIndex[chunk.Index] = slot
+		}
+		return slot
+	}
+	if slot, ok := e.toolByIndex[chunk.Index]; ok {
+		return slot
+	}
+	slot := e.toolIdx
+	e.toolIdx++
+	e.toolByIndex[chunk.Index] = slot
+	return slot
 }
 
 // Close implements StreamEncoder. It is idempotent: a Done chunk already wrote

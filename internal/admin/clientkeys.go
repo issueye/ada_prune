@@ -2,6 +2,8 @@ package admin
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"strings"
 
@@ -106,6 +108,21 @@ func (s *Service) UpdateClientKey(ctx context.Context, id int64, in ClientKeyInp
 func (s *Service) RotateClientKey(ctx context.Context, id int64) (string, error) {
 	token, err := s.d.Store.RotateClientKey(id)
 	if err != nil {
+		return "", translateStoreErr(err, "client key")
+	}
+	return token, nil
+}
+
+// RevealClientKey decrypts a key's plaintext for the desktop's copy action. It
+// stays service-level on purpose: no HTTP route may hand out the plaintext.
+func (s *Service) RevealClientKey(ctx context.Context, id int64) (string, error) {
+	token, err := s.d.Store.RevealClientKey(id)
+	if err != nil {
+		if errors.Is(err, store.ErrClientKeyNotRecoverable) {
+			// Keep the sentinel reachable so callers can react to this case
+			// instead of string-matching.
+			return "", fmt.Errorf("%w; rotate to mint a new one", store.ErrClientKeyNotRecoverable)
+		}
 		return "", translateStoreErr(err, "client key")
 	}
 	return token, nil

@@ -226,6 +226,11 @@ func TestRouteModelEditAndDelete(t *testing.T) {
 	if err := tt.Click("删除"); err != nil {
 		t.Fatalf("choose delete: %v", err)
 	}
+	// The destructive action asks first: the confirmation is the second click.
+	tt.Frame()
+	if err := tt.Click("删除"); err != nil {
+		t.Fatalf("confirm delete: %v", err)
+	}
 	for time.Now().Before(deadline) {
 		if err := state.refresh(); err != nil {
 			t.Fatalf("refresh: %v", err)
@@ -235,5 +240,5 @@ func TestRouteModelEditAndDelete(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("the route should be deleted; routes = %+v", state.routeModels)
+	t.Fatalf("confirming 删除 should delete the route; routes = %+v", state.routeModels)
 }

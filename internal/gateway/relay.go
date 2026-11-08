@@ -40,6 +40,10 @@ type Relay struct {
 	recorder Recorder
 	log      *logging.Logger
 	limits   Limits
+	// limitsSource, when set, overrides the static limits per call: the
+	// watchdogs are runtime-tunable from the settings page, so a saved value
+	// applies to the next request without a restart.
+	limitsSource func() Limits
 	// defaultModel is used when the request names none.
 	defaultModel string
 	now          func() time.Time
@@ -57,6 +61,23 @@ func NewRelay(router *Router, recorder Recorder, log *logging.Logger, limits Lim
 		limits.NonStreamIdle = DefaultLimits().NonStreamIdle
 	}
 	return &Relay{router: router, recorder: recorder, log: log, limits: limits, now: time.Now}
+}
+
+// SetLimitsSource makes the relay read its limits per call from fn, so saved
+// watchdog settings reach new requests without a restart. A nil fn keeps the
+// static limits the relay was built with.
+func (r *Relay) SetLimitsSource(fn func() Limits) { r.limitsSource = fn }
+
+// currentLimits returns the limits this call runs under: the source's answer
+// when one is wired and complete, else the static value. A source that leaves
+// a field zero is treated as broken, not as "no limit".
+func (r *Relay) currentLimits() Limits {
+	if r.limitsSource != nil {
+		if limits := r.limitsSource(); limits.StreamIdle > 0 && limits.NonStreamIdle > 0 && limits.MaxBodyBytes > 0 {
+			return limits
+		}
+	}
+	return r.limits
 }
 
 // SetDefaultModel configures the fallback model name.
@@ -230,6 +251,7 @@ func (r *Relay) invoke(ctx context.Context, route *Route, req *ir.ChatRequest,
 // stream forwards the answer as the client's protocol expects it.
 func (r *Relay) stream(ctx context.Context, w http.ResponseWriter, in CallRequest,
 	route *Route, credential Credential, resp *http.Response, req *ir.ChatRequest, started time.Time) bool {
+	limits := r.currentLimits()
 	encoder, err := codec.Get(in.Inbound)
 	if err != nil {
 		r.writeError(w, in.Inbound, NewClientError(http.StatusBadRequest, "unsupported inbound protocol"))
@@ -244,11 +266,10 @@ func (r *Relay) stream(ctx context.Context, w http.ResponseWriter, in CallReques
 	})
 
 	var (
-		usage        ir.Usage
-		finish       string
-		ttft         int64
-		sentAnything bool
-		decodeErr    error
+		usage     ir.Usage
+		finish    string
+		ttft      int64
+		decodeErr error
 	)
 
 	ticks, stop := pumpChunks(ctx, decoder)
@@ -264,12 +285,12 @@ func (r *Relay) stream(ctx context.Context, w http.ResponseWriter, in CallReques
 			})
 			return false
 
-		case <-time.After(r.limits.StreamIdle):
+		case <-time.After(limits.StreamIdle):
 			// The upstream went quiet. Abort it, then tell the client in-band so
 			// it does not wait forever on a dead stream.
 			r.log.Warn("Upstream stream idle timeout", map[string]any{
 				"provider": route.Provider.Name, "model": route.Model.PublicName,
-				"idleMs": r.limits.StreamIdle.Milliseconds(),
+				"idleMs": limits.StreamIdle.Milliseconds(),
 			})
 			_ = streamEncoder.Close()
 			r.record(in, route, credential, Record{
@@ -281,26 +302,50 @@ func (r *Relay) stream(ctx context.Context, w http.ResponseWriter, in CallReques
 
 		case result, ok := <-ticks:
 			if !ok {
-				// Stream finished.
+				// Stream finished. A missing finish reason is a truncation no
+				// matter how much content went out: closing with [DONE] alone
+				// would tell the client the answer was complete.
+				if decodeErr == nil && finish == "" {
+					decodeErr = errors.New("upstream stream ended without a finish reason")
+					r.log.Warn("Upstream stream ended without finish", map[string]any{
+						"provider": route.Provider.Name,
+						"model":    route.Model.PublicName,
+						"output":   usage.CompletionTokens,
+					})
+					failure := NewClientError(http.StatusBadGateway, decodeErr.Error())
+					_ = writeInBandError(w, in.Inbound, failure)
+				}
 				_ = streamEncoder.Close()
-				status := http.StatusOK
-				errorType := ""
 				if decodeErr != nil {
-					status = http.StatusBadGateway
-					errorType = "upstream_stream_error"
-				} else if finish == "" && !sentAnything {
-					status = http.StatusBadGateway
-					errorType = "upstream_stream_error"
+					r.record(in, route, credential, Record{
+						TS: started.UnixMilli(), StatusCode: http.StatusBadGateway, Stream: true, TTFTMs: ttft,
+						Usage: usage, FinishReason: finish, ErrorType: "upstream_stream_error",
+						DurationMs: r.now().Sub(started).Milliseconds(),
+					})
+					return false
 				}
 				r.record(in, route, credential, Record{
-					TS: started.UnixMilli(), StatusCode: status, Stream: true, TTFTMs: ttft,
-					Usage: usage, FinishReason: finish, ErrorType: errorType,
+					TS: started.UnixMilli(), StatusCode: http.StatusOK, Stream: true, TTFTMs: ttft,
+					Usage: usage, FinishReason: finish,
 					DurationMs: r.now().Sub(started).Milliseconds(),
 				})
-				return decodeErr == nil
+				return true
 			}
 			if result.err != nil {
+				// The decoder's contract: io.EOF is the end of a complete
+				// stream, not a failure. The final record happens when the
+				// channel closes, right after this tick.
+				if errors.Is(result.err, io.EOF) {
+					continue
+				}
 				decodeErr = result.err
+				// Say why in the log: the in-band error reaches the one client
+				// already reading the stream, the log reaches the operator.
+				r.log.Warn("Upstream stream error", map[string]any{
+					"provider": route.Provider.Name,
+					"model":    route.Model.PublicName,
+					"error":    result.err.Error(),
+				})
 				// Render the failure inside the stream: headers are already sent.
 				failure := NewClientError(http.StatusBadGateway, result.err.Error())
 				_ = streamEncoder.Write(&ir.StreamChunk{
@@ -328,7 +373,6 @@ func (r *Relay) stream(ctx context.Context, w http.ResponseWriter, in CallReques
 			if chunk.Kind == ir.ChunkDone {
 				continue
 			}
-			sentAnything = true
 			if err := streamEncoder.Write(chunk); err != nil {
 				// Writing to a gone client: stop reading upstream.
 				r.record(in, route, credential, Record{
@@ -394,7 +438,8 @@ func pumpChunks(ctx context.Context, decoder StreamDecoder) (<-chan chunkResult,
 // buffered serves a non-streaming client from the upstream body.
 func (r *Relay) buffered(w http.ResponseWriter, in CallRequest, route *Route,
 	credential Credential, resp *http.Response, req *ir.ChatRequest, started time.Time) bool {
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, r.limits.MaxBodyBytes))
+	limits := r.currentLimits()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, limits.MaxBodyBytes))
 	if err != nil {
 		r.writeError(w, in.Inbound, NewClientError(http.StatusBadGateway, "reading upstream response: "+err.Error()))
 		r.record(in, route, credential, Record{

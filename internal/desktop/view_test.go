@@ -116,6 +116,73 @@ func TestClientKeyCopyToClipboard(t *testing.T) {
 	}
 }
 
+// TestClientKeyRowCopyRevealsStoredPlaintext pins the row dropdown's copy: the
+// stored plaintext decrypts onto the clipboard without rotating the key.
+func TestClientKeyRowCopyRevealsStoredPlaintext(t *testing.T) {
+	state, tt := newTester(t)
+
+	created, err := state.app.Admin.CreateClientKey(mustContext(t), admin.ClientKeyInput{Name: "codex-local"})
+	if err != nil {
+		t.Fatalf("create client key: %v", err)
+	}
+	state.page = "/keys"
+	if err := state.refresh(); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	tt.Frame()
+
+	if err := tt.Click("更多"); err != nil {
+		t.Fatalf("open row menu: %v", err)
+	}
+	tt.Frame()
+	if err := tt.Click("复制"); err != nil {
+		t.Fatalf("click copy: %v", err)
+	}
+	tt.Frame()
+	if got := tt.Clipboard(); got != created.Token {
+		t.Fatalf("clipboard = %q, want the stored token", got)
+	}
+	if state.status != "已复制到剪贴板" {
+		t.Fatalf("status = %q, want copy confirmation", state.status)
+	}
+}
+
+// TestClientKeyRowCopyLegacyKeyExplainsRotation pins the pre-upgrade path: a
+// key without a stored cipher cannot be revealed, and the message says what to
+// do instead of surfacing raw English.
+func TestClientKeyRowCopyLegacyKeyExplainsRotation(t *testing.T) {
+	state, tt := newTester(t)
+
+	created, err := state.app.Admin.CreateClientKey(mustContext(t), admin.ClientKeyInput{Name: "legacy"})
+	if err != nil {
+		t.Fatalf("create client key: %v", err)
+	}
+	// Simulate a row minted before encrypted storage.
+	if _, err := state.app.Store.DB().Exec(`UPDATE client_keys SET key_encrypted = NULL WHERE id = ?`, created.ID); err != nil {
+		t.Fatalf("clear key_encrypted: %v", err)
+	}
+	state.page = "/keys"
+	if err := state.refresh(); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	tt.Frame()
+
+	if err := tt.Click("更多"); err != nil {
+		t.Fatalf("open row menu: %v", err)
+	}
+	tt.Frame()
+	if err := tt.Click("复制"); err != nil {
+		t.Fatalf("click copy: %v", err)
+	}
+	tt.Frame()
+	if state.status != "该密钥创建于旧版本，无法取回明文；轮换一次即可获得可复制的新密钥" {
+		t.Fatalf("status = %q, want the rotation hint", state.status)
+	}
+	if got := tt.Clipboard(); got != "" {
+		t.Fatalf("clipboard = %q, want it untouched", got)
+	}
+}
+
 func TestProviderListShowsAccessMode(t *testing.T) {
 	state, tt := newTester(t)
 	seedDemoData(t, state) // an openai_compatible provider: API
@@ -160,7 +227,15 @@ func TestSettingsPageShowsPinnedKeys(t *testing.T) {
 	if !tt.HasText("设置") {
 		t.Fatal("settings title is missing")
 	}
-	// The port comes from the environment, so the page must say it is pinned.
+	// The pinned keys live in their own section; the left column advertises it.
+	if !tt.HasText("环境") {
+		t.Fatalf("the env section is missing from the category list; texts: %v", tt.Texts())
+	}
+	if err := tt.Click("环境"); err != nil {
+		t.Fatalf("open the env section: %v", err)
+	}
+	tt.Frame()
+	// The port comes from the environment, so the section must say it is pinned.
 	if !tt.HasText("被环境变量钉住的键") {
 		t.Fatalf("pinned-key notice is missing; texts: %v", tt.Texts())
 	}

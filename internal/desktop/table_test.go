@@ -75,14 +75,15 @@ func TestTableRowActionsDropdown(t *testing.T) {
 		t.Fatal("choosing 停用 should disable the provider")
 	}
 
-	// The empty table (no rows) still renders its guidance.
+	// The empty table (no rows) still renders its guidance. With a query set,
+	// the page says nothing matched rather than that the catalogue is empty.
 	state.page = "/models"
 	state.modelQuery = "no-such-model"
 	if err := state.refresh(); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
 	tt.Frame()
-	if !tt.HasText("还没有模型") {
+	if !tt.HasText("没有匹配的模型") {
 		t.Fatalf("empty state is missing; texts: %v", tt.Texts())
 	}
 }

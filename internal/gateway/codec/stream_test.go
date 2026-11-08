@@ -223,6 +223,33 @@ func TestChatStreamDecoderHandlesReasoningAndUsageOnlyChunks(t *testing.T) {
 	}
 }
 
+// Regression: some OpenAI-compatible gateways fold the finish reason into the
+// usage frame instead of sending it separately. The decoder must not drop it.
+func TestChatStreamDecoderHandlesUsageAndFinishInOneFrame(t *testing.T) {
+	body := strings.Join([]string{
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"content":"answer"},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"finish_reason":"stop","delta":{}}],"usage":{"prompt_tokens":35,"completion_tokens":13,"total_tokens":48}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+
+	got := collect(t, MustGet(ir.ProtoOpenAIChat).NewStreamDecoder(strings.NewReader(body)))
+	if got.text != "answer" {
+		t.Fatalf("text = %q", got.text)
+	}
+	if got.finish != ir.FinishStop {
+		t.Fatalf("finish = %q; want stop (the frame shared with usage must not be dropped)", got.finish)
+	}
+	if got.usage == nil || got.usage.PromptTokens != 35 || got.usage.CompletionTokens != 13 {
+		t.Fatalf("usage = %+v", got.usage)
+	}
+	if !got.sawDone {
+		t.Fatal("missing terminator")
+	}
+}
+
 func TestAnthropicStreamTruncationIsAnError(t *testing.T) {
 	body := strings.Join([]string{
 		`event: message_start`,
@@ -313,5 +340,157 @@ func TestChatRequestEncodesStreamUsageOption(t *testing.T) {
 	}
 	if !raw.StreamOptions.IncludeUsage {
 		t.Fatal("a streaming request must ask for usage, or the gateway cannot bill it")
+	}
+}
+
+// reencodeChatStream decodes an upstream openai_chat SSE body and re-encodes it
+// with the same protocol, returning the client-visible wire the relay would
+// produce.
+func reencodeChatStream(t *testing.T, upstream string) string {
+	t.Helper()
+	c := MustGet(ir.ProtoOpenAIChat)
+	dec := c.NewStreamDecoder(strings.NewReader(upstream))
+	var buf bytes.Buffer
+	enc := c.NewStreamEncoder(&buf)
+	for {
+		chunk, err := dec.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if err := enc.Write(chunk); err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+	}
+	if err := enc.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	return buf.String()
+}
+
+// chatWireToolCall is one delta.tool_calls entry as clients see it on the
+// openai_chat wire.
+type chatWireToolCall struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+// chatWireToolDeltas collects every delta.tool_calls entry of an openai_chat
+// wire dump, in order.
+func chatWireToolDeltas(t *testing.T, wire string) []chatWireToolCall {
+	t.Helper()
+	var out []chatWireToolCall
+	for _, line := range strings.Split(wire, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data: ") || line == "data: [DONE]" {
+			continue
+		}
+		var frame struct {
+			Choices []struct {
+				Delta struct {
+					ToolCalls []chatWireToolCall `json:"tool_calls"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &frame); err != nil {
+			t.Fatalf("wire frame is not valid JSON: %v\n%s", err, line)
+		}
+		if len(frame.Choices) > 0 {
+			out = append(out, frame.Choices[0].Delta.ToolCalls...)
+		}
+	}
+	return out
+}
+
+// TestChatToolCallFragmentsShareOneWireIndex replays the fragmented tool-call
+// stream real OpenAI-compatible upstreams send — one call, many argument
+// fragments — and asserts the client-visible wire keeps a single tool_calls
+// index, so the fragments reassemble into valid JSON instead of each becoming
+// a malformed standalone call.
+func TestChatToolCallFragmentsShareOneWireIndex(t *testing.T) {
+	upstream := strings.Join([]string{
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"list_files","arguments":""}}]}}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"pa"}}]}}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\":\".\"}"}}]}}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+
+	deltas := chatWireToolDeltas(t, reencodeChatStream(t, upstream))
+	if len(deltas) == 0 {
+		t.Fatal("no tool call deltas on the wire")
+	}
+	ids := map[string]bool{}
+	args := ""
+	for _, d := range deltas {
+		if d.Index != 0 {
+			t.Errorf("fragment got tool_calls index %d, want the shared index 0", d.Index)
+		}
+		if d.ID != "" {
+			ids[d.ID] = true
+		}
+		args += d.Function.Arguments
+	}
+	if len(ids) != 1 {
+		t.Errorf("call ids on the wire: %v, want exactly one", ids)
+	}
+	if args != `{"path":"."}` {
+		t.Errorf("reassembled arguments = %q, want {\"path\":\".\"}", args)
+	}
+	if !json.Valid([]byte(args)) {
+		t.Errorf("reassembled arguments %q are not valid JSON", args)
+	}
+}
+
+// TestChatStreamParallelToolCallsKeepDistinctIndexes feeds two interleaved
+// tool calls and asserts their fragments land on distinct wire indexes with
+// arguments kept apart.
+func TestChatStreamParallelToolCallsKeepDistinctIndexes(t *testing.T) {
+	upstream := strings.Join([]string{
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"list_files","arguments":""}}]}}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_2","type":"function","function":{"name":"read_file","arguments":""}}]}}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"path\":\"a\"}"}}]}}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"path\":\"b\"}"}}]}}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+
+	deltas := chatWireToolDeltas(t, reencodeChatStream(t, upstream))
+	argsByIndex := map[int]string{}
+	idByIndex := map[int]string{}
+	for _, d := range deltas {
+		if d.ID != "" {
+			if prev, seen := idByIndex[d.Index]; seen {
+				t.Errorf("index %d carried ids %q and %q", d.Index, prev, d.ID)
+			}
+			idByIndex[d.Index] = d.ID
+		}
+		argsByIndex[d.Index] += d.Function.Arguments
+	}
+	if len(idByIndex) != 2 {
+		t.Fatalf("wire carries calls for indexes %v, want two distinct calls", idByIndex)
+	}
+	if got := argsByIndex[0]; got != `{"path":"a"}` {
+		t.Errorf("index 0 arguments = %q, want {\"path\":\"a\"}", got)
+	}
+	if got := argsByIndex[1]; got != `{"path":"b"}` {
+		t.Errorf("index 1 arguments = %q, want {\"path\":\"b\"}", got)
 	}
 }

@@ -23,7 +23,7 @@ func (s *uiState) routeModelsPage(c *ui.Context) {
 					FontSize(11).TextColor(t.TextMuted).SingleLine()
 				ui.Spacer(c)
 				pill(c, fmt.Sprintf("%d 个", len(s.routeModels)), t.TextMuted, t.TextMuted.Alpha(0.1))
-				if ui.Button(c, "新建路由模型").Clicked() {
+				if iconButton(c, iconPlus(), "新建路由模型").Clicked() {
 					s.openRouteForm()
 				}
 			})
@@ -31,7 +31,11 @@ func (s *uiState) routeModelsPage(c *ui.Context) {
 			rows := s.routeModels
 			if len(rows) == 0 {
 				card(c, func() {
-					emptyState(c, "还没有路由模型", "点击「新建路由模型」，从一个或多个供应商里挑选成员模型")
+					emptyStateAction(c, "还没有路由模型", "把一个或多个供应商的成员模型聚合成一个对外 ID", func() {
+						if primaryIconButton(c, iconPlus(), "新建路由模型").Clicked() {
+							s.openRouteForm()
+						}
+					})
 				})
 				return
 			}
@@ -53,7 +57,7 @@ func (s *uiState) routeCard(c *ui.Context, index int, r store.RouteModel) {
 		Background(t.Surface).Border(1, t.Border).Children(func() {
 		ui.Row(c).Gap(spS).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, r.Name).FontSize(12).Bold().SingleLine().Grow(1).Tooltip(r.Name)
-			if ui.Button(c, "复制").FontSize(10).Padding(2, 8).Clicked() {
+			if iconButton(c, iconCopy(), "复制").FontSize(10).Padding(2, 8).Clicked() {
 				c.WriteClipboard(r.Name)
 				s.flash("已复制到剪贴板", false)
 			}
