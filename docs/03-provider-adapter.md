@@ -397,6 +397,10 @@ CC 判定规则：
 
 ## 4. 标准供应商适配器
 
+两个标准适配器都经 `provider.HTTPClientFor(a.http, in.Provider.ProxyURL)` 选客户端：
+供应商级 `proxyUrl` 为空时直接用共享客户端；非空时按「代理地址 + 超时」缓存一个
+`http.Transport`（连接池复用），改代理地址下一次请求即生效，无需重启。
+
 ### 4.1 `openai_compatible`
 
 - `Do`：`{base}/v1/chat/completions`（或模型 `upstream_protocol=openai_responses` 时 `/v1/responses`），

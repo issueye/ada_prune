@@ -117,6 +117,7 @@ type uiState struct {
 	// creates or updates.
 	formOpen           bool
 	formIsNew          bool
+	formProviderID     int64
 	formKind           string
 	formAccessMode     gateway.AccessMode
 	formProtocol       string
@@ -1794,6 +1795,7 @@ func (s *uiState) setFormAccessMode(mode gateway.AccessMode) {
 func (s *uiState) openNewProvider() {
 	s.formOpen = true
 	s.formIsNew = true
+	s.formProviderID = 0
 	s.formError = ""
 	s.formName = ""
 	s.formBaseURL = ""
@@ -1809,16 +1811,22 @@ func (s *uiState) openNewProvider() {
 }
 
 // openEditProvider fills the form from a provider and its primary credential.
+// The form remembers the provider by id, and the table selection follows it:
+// a row action can be used without clicking the row first, and the rest of the
+// dialog must still describe the row whose menu was opened.
 func (s *uiState) openEditProvider(index int) {
 	if index < 0 || index >= len(s.providers) {
 		return
 	}
 	p := s.providers[index]
+	s.providerSel = index
 	s.formOpen = true
 	s.formIsNew = false
+	s.formProviderID = p.ID
 	s.formError = ""
 	s.formKind = p.Kind
 	s.formAccessMode = p.AccessMode
+	s.formProtocol = protocolOf(p)
 	s.formName = p.Name
 	s.formBaseURL = p.BaseURL
 	s.formProxy = p.ProxyURL
@@ -1893,7 +1901,7 @@ func (s *uiState) saveProviderForm() {
 			}
 		}
 	} else {
-		existing = s.selectedProviderView()
+		existing = s.formProviderView()
 		if existing == nil {
 			s.formError = "未选中供应商"
 			return
@@ -1944,7 +1952,7 @@ func (s *uiState) saveProviderForm() {
 	providerID := int64(0)
 	if !isNew {
 		// The kind is immutable; the service rejects a change anyway.
-		providerID = s.selectedProviderID()
+		providerID = s.formProviderID
 	}
 
 	go func() {
@@ -1999,20 +2007,19 @@ func (s *uiState) saveProviderForm() {
 	}()
 }
 
-// selectedProviderView returns the provider chosen in the table, if any.
-func (s *uiState) selectedProviderView() *admin.ProviderView {
-	if s.providerSel >= 0 && s.providerSel < len(s.providers) {
-		return &s.providers[s.providerSel]
+// formProviderView returns the provider the open form edits, if any. The form
+// holds an id rather than the table index, so a background refresh that
+// reorders the list cannot make it edit the wrong row.
+func (s *uiState) formProviderView() *admin.ProviderView {
+	if s.formIsNew || s.formProviderID <= 0 {
+		return nil
+	}
+	for i := range s.providers {
+		if s.providers[i].ID == s.formProviderID {
+			return &s.providers[i]
+		}
 	}
 	return nil
-}
-
-// selectedProviderID returns the id of the provider chosen in the table.
-func (s *uiState) selectedProviderID() int64 {
-	if s.providerSel >= 0 && s.providerSel < len(s.providers) {
-		return s.providers[s.providerSel].ID
-	}
-	return 0
 }
 
 // renderHeaders turns a header map into the form's "Key: Value" lines.

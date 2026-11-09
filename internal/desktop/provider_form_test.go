@@ -289,3 +289,63 @@ func mustContext(t *testing.T) context.Context {
 	t.Helper()
 	return context.Background()
 }
+
+// TestEditProviderFromRowAction reproduces the row-menu path: the table need
+// not have a selected row when a row action is used. The dialog must describe
+// the row whose menu was opened, and saving must update that provider — not
+// whichever row happened to be selected.
+func TestEditProviderFromRowAction(t *testing.T) {
+	state, tt := newTester(t)
+	seedDemoData(t, state)
+
+	// A second provider whose protocol differs from the first, so the form's
+	// protocol choice is proven to come from the edited row.
+	ctx := context.Background()
+	if _, err := state.app.Admin.CreateProvider(ctx, admin.ProviderInput{
+		Name:    "Responses 主号",
+		Kind:    "openai_compatible",
+		BaseURL: "https://api.example.com",
+		AdapterConfig: map[string]any{
+			"protocol": protocolOpenAIResponses,
+		},
+	}); err != nil {
+		t.Fatalf("seed second provider: %v", err)
+	}
+	state.page = "/providers"
+	if err := state.refresh(); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+
+	target := -1
+	for i, p := range state.providers {
+		if p.Name == "Responses 主号" {
+			target = i
+		}
+	}
+	if target < 0 {
+		t.Fatalf("second provider is missing: %+v", state.providers)
+	}
+
+	// No row was clicked: the dropdown menu is used directly.
+	state.providerSel = -1
+	state.openEditProvider(target)
+	tt.Frame() // must not panic
+
+	if state.formProviderID != state.providers[target].ID {
+		t.Fatalf("form provider id = %d, want %d", state.formProviderID, state.providers[target].ID)
+	}
+	if state.formProtocol != protocolOpenAIResponses {
+		t.Fatalf("form protocol = %q, want %q", state.formProtocol, protocolOpenAIResponses)
+	}
+
+	state.formName = "Responses 改名"
+	state.saveProviderForm()
+	renamed := waitForProvider(t, state, "Responses 改名")
+	if renamed.ID != state.providers[target].ID {
+		t.Fatalf("renamed provider id = %d, want %d", renamed.ID, state.providers[target].ID)
+	}
+	// The protocol survived the save untouched.
+	if got := protocolOf(renamed); got != protocolOpenAIResponses {
+		t.Fatalf("protocol after save = %q, want %q", got, protocolOpenAIResponses)
+	}
+}

@@ -686,6 +686,7 @@ func (openAIChatCodec) NewStreamEncoder(w io.Writer) StreamEncoder {
 		created:     time.Now().Unix(),
 		toolByIndex: map[int]int{},
 		toolByID:    map[string]int{},
+		toolSlots:   map[int]*chatToolSlot{},
 	}
 }
 
@@ -706,6 +707,16 @@ type chatStreamEncoder struct {
 	toolIdx     int
 	toolByIndex map[int]int
 	toolByID    map[string]int
+	// toolSlots remembers what each slot has emitted. An upstream that omits
+	// call ids and reuses one index for several complete calls would otherwise
+	// fold their arguments into a single client-visible call.
+	toolSlots map[int]*chatToolSlot
+}
+
+// chatToolSlot is the reassembly state of one wire tool call.
+type chatToolSlot struct {
+	name string
+	args string
 }
 
 // Write implements StreamEncoder.
@@ -728,6 +739,7 @@ func (e *chatStreamEncoder) Write(chunk *ir.StreamChunk) error {
 			return nil
 		}
 		index := e.toolSlotFor(chunk)
+		e.recordToolArgs(index, chunk)
 		call := map[string]any{
 			"index": index,
 			"type":  "function",
@@ -768,34 +780,76 @@ func (e *chatStreamEncoder) Write(chunk *ir.StreamChunk) error {
 // the encoder has already seen continues that call; an unseen call id opens a
 // new slot even when it reuses an index another call claimed (decoders that
 // cannot tell parallel calls apart leave the index at zero). A fragment
-// without an id joins whichever call claimed its index.
+// without an id joins whichever call claimed its index, unless that call is
+// already complete and this frame starts another one.
 func (e *chatStreamEncoder) toolSlotFor(chunk *ir.StreamChunk) int {
 	if chunk.ToolCallID != "" {
 		if slot, ok := e.toolByID[chunk.ToolCallID]; ok {
 			return slot
 		}
-		slot := e.toolIdx
-		e.toolIdx++
+		slot := e.allocateToolSlot(chunk.Index)
 		e.toolByID[chunk.ToolCallID] = slot
-		if _, claimed := e.toolByIndex[chunk.Index]; !claimed {
-			e.toolByIndex[chunk.Index] = slot
-		}
 		return slot
 	}
-	if slot, ok := e.toolByIndex[chunk.Index]; ok {
+	if slot, ok := e.toolByIndex[chunk.Index]; ok && !e.startsNewToolCall(chunk, slot) {
 		return slot
 	}
+	return e.allocateToolSlot(chunk.Index)
+}
+
+// allocateToolSlot opens a call slot and makes it the owner of its upstream
+// index, so fragments that arrive without an id attach to the newest call.
+func (e *chatStreamEncoder) allocateToolSlot(index int) int {
 	slot := e.toolIdx
 	e.toolIdx++
-	e.toolByIndex[chunk.Index] = slot
+	e.toolByIndex[index] = slot
+	e.toolSlots[slot] = &chatToolSlot{}
 	return slot
 }
 
+// startsNewToolCall reports whether an id-less chunk opens another call even
+// though its index is already in use. Some upstreams send one complete call per
+// frame and omit or reuse ids; the previous call's arguments are then valid
+// JSON, while a continuation fragment of one call is not complete JSON on its
+// own. A repeated function name is the signal that another call starts.
+func (e *chatStreamEncoder) startsNewToolCall(chunk *ir.StreamChunk, slot int) bool {
+	state := e.toolSlots[slot]
+	if state == nil || state.name == "" {
+		return false
+	}
+	if chunk.ToolName == "" && chunk.ArgsComplete == "" {
+		// A plain argument fragment continues the call already in this slot.
+		return false
+	}
+	return json.Valid([]byte(state.args))
+}
+
+// recordToolArgs keeps the slot's reassembly state up to date.
+func (e *chatStreamEncoder) recordToolArgs(slot int, chunk *ir.StreamChunk) {
+	state := e.toolSlots[slot]
+	if state == nil {
+		state = &chatToolSlot{}
+		e.toolSlots[slot] = state
+	}
+	if chunk.ToolName != "" {
+		state.name = chunk.ToolName
+	}
+	state.args += firstNonEmpty(chunk.ArgsDelta, chunk.ArgsComplete)
+}
+
 // Close implements StreamEncoder. It is idempotent: a Done chunk already wrote
-// the terminator.
+// the terminator. The usage frame is emitted here too, because the relay closes
+// the encoder at the end of the stream instead of forwarding the decoder's Done
+// chunk; without it a streaming client would never see token accounting.
 func (e *chatStreamEncoder) Close() error {
 	if e.closed {
 		return nil
+	}
+	if e.usage != nil {
+		if err := e.emitUsage(); err != nil {
+			e.closed = true
+			return err
+		}
 	}
 	e.closed = true
 	return e.writer.Data("[DONE]")

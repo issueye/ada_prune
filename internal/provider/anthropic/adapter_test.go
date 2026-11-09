@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/learningdog1/ada_prune/internal/gateway"
@@ -296,5 +297,29 @@ func TestSchemaCoversDefaults(t *testing.T) {
 		if !keys[want] {
 			t.Errorf("schema is missing %q", want)
 		}
+	}
+}
+
+// TestDoUsesProviderProxy pins that a provider's network proxy is actually
+// used for the Messages endpoint too.
+func TestDoUsesProviderProxy(t *testing.T) {
+	var hits int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		_, _ = io.WriteString(w, `{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude-test","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer proxy.Close()
+
+	a := newAdapter(t)
+	in := invokeFor("http://upstream.invalid")
+	in.Provider.ProxyURL = proxy.URL
+	resp, err := a.Do(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if atomic.LoadInt32(&hits) == 0 {
+		t.Fatal("the request bypassed the configured proxy")
 	}
 }

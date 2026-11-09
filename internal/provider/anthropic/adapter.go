@@ -147,6 +147,11 @@ func New(d provider.Deps) (gateway.Adapter, error) {
 // Kind implements gateway.Adapter.
 func (a *Adapter) Kind() gateway.Kind { return provider.KindAnthropic }
 
+// client returns the HTTP client for a provider, honouring its proxy setting.
+func (a *Adapter) client(p gateway.ProviderConfig) *http.Client {
+	return provider.HTTPClientFor(a.http, p.ProxyURL)
+}
+
 // Capabilities implements gateway.Adapter.
 func (a *Adapter) Capabilities() gateway.Capabilities {
 	return gateway.Capabilities{
@@ -199,7 +204,7 @@ func (a *Adapter) Do(ctx context.Context, in *gateway.InvokeRequest) (*http.Resp
 		return nil, fmt.Errorf("anthropic: build request: %w", err)
 	}
 	applyHeaders(httpReq, cfg, in)
-	return a.http.Do(httpReq)
+	return a.client(in.Provider).Do(httpReq)
 }
 
 // DecodeResponse implements gateway.Adapter.
@@ -240,7 +245,7 @@ func (a *Adapter) Probe(ctx context.Context, in gateway.ProbeRequest) (gateway.P
 		Credential: in.Credential,
 	})
 
-	resp, err := a.http.Do(req)
+	resp, err := a.client(in.Provider).Do(req)
 	if err != nil {
 		return gateway.ProbeResult{OK: false, DurationMs: time.Since(started).Milliseconds(),
 			Detail: truncate(err.Error(), 200)}, nil

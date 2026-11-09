@@ -1,0 +1,11 @@
+# Everything is text; let each checkout use its native line ending.
+* text=auto
+
+# Go sources stay LF so `gofmt -l .` (a mandatory pre-commit check) agrees on
+# every platform: CRLF working copies make gofmt report every file.
+*.go text eol=lf
+
+# Goldens are compared byte for byte (key order, spacing and line endings are
+# all significant), so git must never rewrite their bytes on checkout. This
+# must come after `* text=auto`: the last matching pattern wins.
+testdata/golden/** -text

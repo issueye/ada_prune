@@ -323,8 +323,12 @@ chunk n: data: {"id":"chatcmpl-..","object":"chat.completion.chunk","created":..
 
 - 首个 chunk 带 `delta.role="assistant"`；
 - 工具调用 chunk：`delta.tool_calls[{index,id,type:"function",function:{name,arguments}}]`，
-  后续只带 `arguments` 增量；
-- `usage` 只在最后一个 chunk（或 `stream_options.include_usage` 时单独一帧）。
+  后续只带 `arguments` 增量；一个上游帧里带完整调用（`ArgsComplete`）且复用 `index`
+  或省略 `id` 时，按「上一调用的参数已是完整 JSON」判定为新调用，另开一条 wire
+  `index`，不能把它们拼成一条非法 JSON；
+- `usage` 只在最后一个 chunk（或 `stream_options.include_usage` 时单独一帧）；
+- relay 不转发解码器的 `ChunkDone`，只调用编码器 `Close()`，所以编码器必须在
+  `Close()` 里补写 usage 帧（位于 `[DONE]` 之前），否则流式客户端永远收不到用量。
 
 ### 6.3 openai_responses 编码器
 

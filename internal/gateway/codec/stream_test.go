@@ -494,3 +494,114 @@ func TestChatStreamParallelToolCallsKeepDistinctIndexes(t *testing.T) {
 		t.Errorf("index 1 arguments = %q, want {\"path\":\"b\"}", got)
 	}
 }
+
+// TestChatStreamEncoderEmitsUsageOnClose covers the relay's shape: the relay
+// never forwards the decoder's terminal Done chunk, it only closes the encoder.
+// A streaming chat client must still receive the usage frame before [DONE],
+// otherwise its token accounting (speed and context share) sees nothing.
+func TestChatStreamEncoderEmitsUsageOnClose(t *testing.T) {
+	c := MustGet(ir.ProtoOpenAIChat)
+	var buf bytes.Buffer
+	enc := c.NewStreamEncoder(&buf)
+	chunks := []*ir.StreamChunk{
+		{Kind: ir.ChunkStart, ID: "c1", Model: "m"},
+		{Kind: ir.ChunkText, Text: "hi"},
+		{Kind: ir.ChunkUsage, Usage: &ir.Usage{PromptTokens: 10, CompletionTokens: 5}},
+		{Kind: ir.ChunkFinish, FinishReason: ir.FinishStop},
+	}
+	for _, chunk := range chunks {
+		if err := enc.Write(chunk); err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+	}
+	if err := enc.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	body := buf.String()
+	usageAt := strings.Index(body, `"prompt_tokens":10`)
+	doneAt := strings.Index(body, "data: [DONE]")
+	if usageAt < 0 {
+		t.Fatalf("Close dropped the usage frame\nbody:\n%s", body)
+	}
+	if doneAt < 0 || usageAt > doneAt {
+		t.Fatalf("usage must precede [DONE]\nbody:\n%s", body)
+	}
+
+	got := collect(t, c.NewStreamDecoder(strings.NewReader(body)))
+	if got.usage == nil || got.usage.PromptTokens != 10 || got.usage.CompletionTokens != 5 {
+		t.Fatalf("usage = %+v, want 10/5", got.usage)
+	}
+}
+
+// TestChatStreamCompleteCallsWithoutIDsStaySeparate replays an upstream that
+// sends several complete tool calls in one stream but omits the call id and
+// reuses index 0 for every call. Each call must land on its own wire index;
+// folding them together makes the client concatenate two JSON objects into one
+// arguments string, which it then rejects as malformed.
+func TestChatStreamCompleteCallsWithoutIDsStaySeparate(t *testing.T) {
+	upstream := strings.Join([]string{
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"read","arguments":"{\"file_path\":\"internal/engine/context.go\",\"limit\":80}"}}]}}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"read","arguments":"{\"file_path\":\"internal/plugins/host.go\"}"}}]}}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+
+	deltas := chatWireToolDeltas(t, reencodeChatStream(t, upstream))
+	argsByIndex := map[int]string{}
+	for _, d := range deltas {
+		argsByIndex[d.Index] += d.Function.Arguments
+	}
+	if len(argsByIndex) != 2 {
+		t.Fatalf("wire carries %d calls, want 2 distinct calls: %v", len(argsByIndex), argsByIndex)
+	}
+	for index, args := range argsByIndex {
+		if !json.Valid([]byte(args)) {
+			t.Errorf("call %d arguments are not valid JSON: %q", index, args)
+		}
+		if strings.Contains(args, "}{") {
+			t.Errorf("call %d arguments hold two objects: %q", index, args)
+		}
+	}
+}
+
+// TestChatStreamArgsCompleteChunksWithoutIDStaySeparate covers the vendor
+// adapter path: the upstream delivers a whole call per event and names no id,
+// so the encoder must open a new slot per complete call.
+func TestChatStreamArgsCompleteChunksWithoutIDStaySeparate(t *testing.T) {
+	c := MustGet(ir.ProtoOpenAIChat)
+	var buf bytes.Buffer
+	enc := c.NewStreamEncoder(&buf)
+	chunks := []*ir.StreamChunk{
+		{Kind: ir.ChunkStart, ID: "c1", Model: "m"},
+		{Kind: ir.ChunkToolCall, ToolName: "read", ArgsComplete: `{"file_path":"internal/engine/context.go","limit":80}`},
+		{Kind: ir.ChunkToolCall, ToolName: "read", ArgsComplete: `{"file_path":"internal/plugins/host.go"}`},
+		{Kind: ir.ChunkFinish, FinishReason: ir.FinishToolCalls},
+	}
+	for _, chunk := range chunks {
+		if err := enc.Write(chunk); err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+	}
+	if err := enc.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	deltas := chatWireToolDeltas(t, buf.String())
+	argsByIndex := map[int]string{}
+	for _, d := range deltas {
+		argsByIndex[d.Index] += d.Function.Arguments
+	}
+	if len(argsByIndex) != 2 {
+		t.Fatalf("wire carries %d calls, want 2 distinct calls: %v", len(argsByIndex), argsByIndex)
+	}
+	for index, args := range argsByIndex {
+		if !json.Valid([]byte(args)) {
+			t.Errorf("call %d arguments are not valid JSON: %q", index, args)
+		}
+	}
+}

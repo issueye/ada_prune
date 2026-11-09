@@ -108,7 +108,7 @@ func (s *uiState) providerDialog(c *ui.Context) {
 		title = "新建供应商"
 	}
 
-	ui.Column(c).Gap(spM).Children(func() {
+	ui.Column(c).Width(640).Gap(spM).Children(func() {
 		ui.Row(c).Gap(spS).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, title).FontSize(15).Bold()
 			hintIcon(c, "表单", "先选类型再选协议或适配器；密钥加密存储，出参恒为掩码。")
@@ -210,8 +210,16 @@ func (s *uiState) providerProtocolField(c *ui.Context) {
 		})
 		return
 	}
-	p := s.selectedProviderView()
-	if p != nil && editableProtocol(*p) {
+	p := s.formProviderView()
+	if p == nil {
+		// The list can refresh while the form is open; the dialog must not
+		// dereference a provider that is gone.
+		fieldWith(c, "协议", "供应商已不在列表中", func() {
+			ui.Text(c, "无法显示协议，请关闭后重新打开").FontSize(11).TextColor(c.Theme().TextMuted)
+		})
+		return
+	}
+	if editableProtocol(*p) {
 		fieldWith(c, "协议", "可在 OpenAI Chat / Responses 之间切换", func() {
 			options := []string{protocolOpenAIChat, protocolOpenAIResponses}
 			label := protocolLabel(s.formProtocol)

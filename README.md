@@ -174,7 +174,7 @@ export ANTHROPIC_AUTH_TOKEN=sk-prune-xxxx
 ```bash
 gofmt -l .        # 必须为空
 go vet ./...      # 必须通过
-go test ./...     # 208 个用例
+go test ./...     # 263 个用例
 ```
 
 ## 许可

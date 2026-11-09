@@ -253,6 +253,10 @@ func TestChatCompletionStreaming(t *testing.T) {
 		t.Fatalf("stream has no terminator:\n%s", text)
 	}
 	var assembled string
+	var streamUsage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+	}
 	scanner := bufio.NewScanner(strings.NewReader(text))
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -265,9 +269,17 @@ func TestChatCompletionStreaming(t *testing.T) {
 					Content string `json:"content"`
 				} `json:"delta"`
 			} `json:"choices"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &chunk); err != nil {
 			continue
+		}
+		if chunk.Usage != nil {
+			streamUsage.PromptTokens = chunk.Usage.PromptTokens
+			streamUsage.CompletionTokens = chunk.Usage.CompletionTokens
 		}
 		for _, c := range chunk.Choices {
 			assembled += c.Delta.Content
@@ -275,6 +287,11 @@ func TestChatCompletionStreaming(t *testing.T) {
 	}
 	if assembled != "hello stub" {
 		t.Fatalf("assembled = %q\nstream:\n%s", assembled, text)
+	}
+	// The stream must carry token accounting: clients derive their speed and
+	// context indicators from this frame, and a missing one reads as zero usage.
+	if streamUsage.PromptTokens != 5 || streamUsage.CompletionTokens != 2 {
+		t.Fatalf("stream usage = %+v, want 5/2\nstream:\n%s", streamUsage, text)
 	}
 
 	// A complete stream must carry no in-band error: the decoder's io.EOF is

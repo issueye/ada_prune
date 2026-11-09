@@ -719,6 +719,31 @@ ID 原样保留（`publicName` 回填旧值），避免改了上游名就让客�
 
 `go test ./...` 目前 **231 个用例**，`gofmt -l .` 与 `go vet ./...` 干净。
 
+### P9 · 流式用量、供应商代理与表单编辑锁定
+
+P9 首轮（`b9f865d`）交付桌面 UI 打磨与流式可靠性修复后，实际客户端又暴露了
+四处问题，本轮一并收口：
+
+| 问题 | 现象 | 修法 |
+| :--- | :--- | :--- |
+| 流式用量丢失 | relay 不转发解码器的 `ChunkDone`，只调编码器 `Close()`；chat 编码器把 usage 帧写在 `Done` 分支，导致流式客户端永远见不到 token 用量 | `Close()` 补写 usage 帧（在 `[DONE]` 之前），与 `Done` 分支共用 `emitUsage()` |
+| 无 id 的完整工具调用被拼成一条 | 上游每帧给一个完整调用、省略 id 并复用 `index 0`，编码器把两次调用的参数串成一个非法 JSON | 编码器按「槽内参数已是完整 JSON」判定新调用，另开 wire `index`（`toolSlots`） |
+| 供应商代理不生效 | 标准适配器的 `proxyUrl` 只影响 CC 适配器；`openai_compatible` / `anthropic` 始终走共享客户端 | `provider.HTTPClientFor(base, proxyURL)`：空代理复用共享客户端，非空按「代理 + 超时」缓存 transport；`Do` / `Probe` / `DiscoverModels` 统一经它 |
+| 行菜单编辑错对象 | 行内「更多 → 编辑」无需先选中行，旧代码按 `providerSel` 记述对象；后台刷新重排后可能改错供应商 | 表单改记 `formProviderID`，协议行与保存都按 id 回查；供应商消失时协议行退化为提示 |
+
+另外补上 `.gitattributes`：`*.go` 固定 LF（Windows 的 `core.autocrlf=true`
+会把工作区写成 CRLF，让 `gofmt -l .` 把每个文件都报出来），`testdata/golden/**`
+标记 `-text`（金标准逐字节比较，行尾也属于内容）。
+
+回归手段：`TestChatStreamEncoderEmitsUsageOnClose` 断言 `Close()` 在 `[DONE]`
+前写出 usage 帧；`TestChatStreamCompleteCallsWithoutIDsStaySeparate` 与
+`TestChatStreamArgsCompleteChunksWithoutIDStaySeparate` 断言两条独立调用且参数
+各自是合法 JSON；`TestDoUsesProviderProxy`（两个标准适配器各一份）与
+`TestHTTPClientFor*` 断言代理真的被走、空代理复用共享客户端、按地址缓存；
+`TestEditProviderFromRowAction` 断言行菜单编辑按 id 定位并保留协议。
+
+`go test ./...` 目前 **263 个用例**，`gofmt -l .` 与 `go vet ./...` 干净。
+
 ### 全部里程碑完成
 
 P0–P8 交付完毕。剩余的可选项（不在原计划内）：
@@ -728,5 +753,5 @@ P0–P8 交付完毕。剩余的可选项（不在原计划内）：
 - macOS dmg 与 CI；
 - 账号用量面板。
 
-`go test ./...` 目前 **231 个用例**，`gofmt -l .` 与 `go vet ./...` 干净。
+`go test ./...` 目前 **263 个用例**，`gofmt -l .` 与 `go vet ./...` 干净。
 
