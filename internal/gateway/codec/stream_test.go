@@ -26,6 +26,7 @@ func streamChunks() []*ir.StreamChunk {
 
 type collected struct {
 	text      string
+	thinking  string
 	toolIDs   []string
 	toolNames []string
 	toolArgs  string
@@ -51,6 +52,8 @@ func collect(t *testing.T, dec StreamDecoder) collected {
 			out.sawStart = true
 		case ir.ChunkText:
 			out.text += chunk.Text
+		case ir.ChunkThinking:
+			out.thinking += chunk.Text
 		case ir.ChunkToolCall:
 			if chunk.ToolCallID != "" {
 				out.toolIDs = append(out.toolIDs, chunk.ToolCallID)
@@ -220,6 +223,33 @@ func TestChatStreamDecoderHandlesReasoningAndUsageOnlyChunks(t *testing.T) {
 	}
 	if !got.sawDone {
 		t.Fatal("missing terminator")
+	}
+}
+
+// Regression: OpenRouter-style gateways spell reasoning differently — a bare
+// "reasoning" string on deltas and a reasoning_details parts list when the same
+// delta carries structure. Accepting only reasoning_content drops the thinking.
+func TestChatStreamDecoderAcceptsReasoningAliases(t *testing.T) {
+	body := strings.Join([]string{
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"reasoning":"need "},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.text","text":"the shell"}]},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"content":"answer"},"finish_reason":"stop"}]}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+
+	got := collect(t, MustGet(ir.ProtoOpenAIChat).NewStreamDecoder(strings.NewReader(body)))
+	if got.thinking != "need the shell" {
+		t.Fatalf("thinking = %q, want %q", got.thinking, "need the shell")
+	}
+	if got.text != "answer" {
+		t.Fatalf("text = %q", got.text)
+	}
+	if got.finish != ir.FinishStop {
+		t.Fatalf("finish = %q", got.finish)
 	}
 }
 

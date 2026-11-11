@@ -527,3 +527,54 @@ func TestSystemBlockVariants(t *testing.T) {
 		t.Fatalf("anthropic system = %q", got)
 	}
 }
+
+// Regression: a compatible gateway may split one assistant turn across two
+// choices — the prose in choices[0], the tool calls in choices[1], and the
+// finish reason only on the latter. Decoding choices[0] alone silently drops
+// either the prose or the tool call.
+func TestChatDecodeMergesSplitChoices(t *testing.T) {
+	body := []byte(`{
+		"id":"c1","model":"m",
+		"choices":[
+			{"index":0,"message":{"role":"assistant","content":"intro"},"finish_reason":null},
+			{"index":1,"message":{"role":"assistant","content":null,"tool_calls":[
+				{"index":0,"id":"call_1","type":"function","function":{"name":"get_time","arguments":"{}"}}
+			]},"finish_reason":"tool_calls"}
+		],
+		"usage":{"prompt_tokens":3,"completion_tokens":4,"total_tokens":7}
+	}`)
+	resp, err := MustGet(ir.ProtoOpenAIChat).DecodeResponse(body)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := resp.Text(); got != "intro" {
+		t.Fatalf("text = %q", got)
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].ID != "call_1" || resp.ToolCalls[0].Name != "get_time" {
+		t.Fatalf("tool calls = %+v", resp.ToolCalls)
+	}
+	if resp.FinishReason != ir.FinishToolCalls {
+		t.Fatalf("finish = %q, want tool_calls", resp.FinishReason)
+	}
+}
+
+// Regression: reasoning may travel as reasoning_details instead of the
+// DeepSeek-style reasoning_content. Dropping it leaves agents with no thinking.
+func TestChatDecodeAcceptsReasoningDetails(t *testing.T) {
+	body := []byte(`{"id":"c1","model":"m","choices":[{"index":0,"finish_reason":"stop","message":{
+		"role":"assistant","content":"answer",
+		"reasoning_details":[
+			{"type":"reasoning.summary","summary":"first "},
+			{"type":"reasoning.text","text":"second"}
+		]}}]}`)
+	resp, err := MustGet(ir.ProtoOpenAIChat).DecodeResponse(body)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := thinkingText(resp.Blocks); got != "first second" {
+		t.Fatalf("thinking = %q", got)
+	}
+	if got := resp.Text(); got != "answer" {
+		t.Fatalf("text = %q", got)
+	}
+}
