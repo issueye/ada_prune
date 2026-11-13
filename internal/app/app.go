@@ -296,6 +296,9 @@ func (a *App) startBackground(ctx context.Context) {
 				if freed := a.Router.Windows().Sweep(); freed > 0 {
 					a.Log.Info("Rate windows recovered", map[string]any{"credentials": freed})
 				}
+				// Custom endpoint buckets are per client address; expired ones
+				// would otherwise accumulate for the life of the process.
+				a.Server.EndpointLimiter().Sweep()
 			}
 		}
 	}()

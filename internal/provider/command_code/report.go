@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/learningdog1/ada_prune/internal/gateway"
-	"github.com/learningdog1/ada_prune/internal/provider"
 )
 
 // Reporting cadence. The upstream expects a credential to announce its device
@@ -95,11 +94,17 @@ func (a *Adapter) loadReport(providerID, credID int64) credentialReport {
 	return book.Credentials[credID]
 }
 
-// saveReport writes one credential's announcements back.
+// saveReport writes one credential's announcements back. The lock covers the
+// whole read-modify-write: concurrent reports for different credentials would
+// otherwise drop each other's entries, making the loser report again on the
+// next request.
 func (a *Adapter) saveReport(providerID, credID int64, report credentialReport) {
 	if a.state == nil {
 		return
 	}
+	a.reportBookMu.Lock()
+	defer a.reportBookMu.Unlock()
+
 	var book reportBook
 	if found, err := a.state.Get(providerID, gateway.StateFingerprint, &book); err == nil && found && book.Credentials != nil {
 		// keep the other entries
@@ -116,8 +121,8 @@ func (a *Adapter) saveReport(providerID, credID int64, report credentialReport) 
 // maybeReport announces the device identity when the schedule says it is due.
 // It never blocks the request that triggered it: a failed report is retried in a
 // few minutes and the data plane is unaffected either way.
-func (a *Adapter) maybeReport(providerID int64, cred gateway.Credential, cfg Config) {
-	e := a.entry(providerID, cred, cfg)
+func (a *Adapter) maybeReport(provider gateway.ProviderConfig, cred gateway.Credential, cfg Config) {
+	e := a.entry(provider.ID, cred, cfg)
 	now := a.clock().UnixMilli()
 	if e.report.NextReportAt > now {
 		return
@@ -139,8 +144,12 @@ func (a *Adapter) maybeReport(providerID int64, cred gateway.Credential, cfg Con
 		}()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		// The full config, not just the id: Report resolves the API base,
+		// proxy, fingerprint salt, project directory and protocol version from
+		// it, and a stripped config would report a different device to the
+		// default upstream.
 		_, _ = a.Report(ctx, gateway.FingerprintRequest{
-			Provider:   gateway.ProviderConfig{ID: providerID, Kind: provider.KindCommandCode},
+			Provider:   provider,
 			Credential: cred,
 			Identity:   e.fingerprint.asIdentity(),
 		})

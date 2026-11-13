@@ -791,6 +791,12 @@ func (e *anthropicStreamEncoder) Close() error {
 	return e.stop()
 }
 
+// Abort implements StreamEncoder. A failed stream must not end with
+// message_stop: clients read it as "the answer is complete".
+func (e *anthropicStreamEncoder) Abort() {
+	e.closed = true
+}
+
 func (e *anthropicStreamEncoder) stop() error {
 	if e.closed {
 		return nil

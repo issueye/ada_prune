@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 const endpointColumns = `id, name, path, inbound_protocol, target_type, target_id,
@@ -60,6 +61,44 @@ func (s *Store) GetEndpointByPath(path string) (*Endpoint, error) {
 		return nil, ErrNotFound
 	}
 	return e, err
+}
+
+// MatchEndpointByPath returns the custom endpoint with the longest path that
+// prefixes the requested path. A path matches exactly, or as a whole segment:
+// "/cc" matches "/cc/v1/messages" but not "/ccx". Disabled endpoints still take
+// part, so a disabled longer prefix shadows shorter ones instead of silently
+// falling through to another target.
+func (s *Store) MatchEndpointByPath(path string) (*Endpoint, error) {
+	rows, err := s.ListEndpoints()
+	if err != nil {
+		return nil, err
+	}
+	var best *Endpoint
+	for i := range rows {
+		e := &rows[i]
+		if !endpointPathMatches(e.Path, path) {
+			continue
+		}
+		if best == nil || len(e.Path) > len(best.Path) {
+			best = e
+		}
+	}
+	if best == nil {
+		return nil, ErrNotFound
+	}
+	return best, nil
+}
+
+// endpointPathMatches reports whether a configured prefix covers a request
+// path. The comparison is segment-aware so "/cc" does not capture "/ccx".
+func endpointPathMatches(prefix, path string) bool {
+	if prefix == path {
+		return true
+	}
+	if prefix == "/" {
+		return strings.HasPrefix(path, "/")
+	}
+	return strings.HasPrefix(path, prefix+"/")
 }
 
 // ListEndpoints returns every custom endpoint ordered by path.

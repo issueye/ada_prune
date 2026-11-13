@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"os"
+	"sync"
 	"time"
 
 	"github.com/learningdog1/ada_prune/internal/gateway/codec"
@@ -97,6 +100,13 @@ type CallRequest struct {
 	Session SessionHints
 	// Writer receives the response.
 	Writer http.ResponseWriter
+	// ModelOverride pins the call to a public model name. A custom endpoint
+	// sets it from its target; builtin endpoints leave it empty and route by
+	// the model field in Body.
+	ModelOverride string
+	// Timeout caps one upstream exchange. It is combined with the provider
+	// timeout: the shorter positive value wins, zero means "provider only".
+	Timeout time.Duration
 }
 
 // Call serves one request. Errors are written to the response; the return value
@@ -116,7 +126,10 @@ func (r *Relay) Call(ctx context.Context, in CallRequest) bool {
 		r.writeError(w, in.Inbound, InvalidRequest("", err.Error()))
 		return false
 	}
-	modelName := req.Model
+	modelName := in.ModelOverride
+	if modelName == "" {
+		modelName = req.Model
+	}
 	if modelName == "" {
 		modelName = r.defaultModel
 	}
@@ -141,7 +154,7 @@ func (r *Relay) Call(ctx context.Context, in CallRequest) bool {
 	// Upstreams address models by their own name, not the gateway's public one.
 	req.Model = route.Model.UpstreamName
 
-	resp, credential, herr := r.invoke(ctx, route, req, in.Session)
+	resp, credential, herr := r.invoke(ctx, route, req, in.Session, in.Timeout)
 	if herr != nil {
 		r.writeError(w, in.Inbound, herr)
 		r.record(in, route, credential, Record{
@@ -160,13 +173,31 @@ func (r *Relay) Call(ctx context.Context, in CallRequest) bool {
 	return r.buffered(w, in, route, credential, resp, req, started)
 }
 
+// effectiveTimeout merges the provider and endpoint timeouts. Both are caps, so
+// the shorter positive value wins; zero means "not configured".
+func effectiveTimeout(providerMs int, endpoint time.Duration) time.Duration {
+	provider := time.Duration(providerMs) * time.Millisecond
+	switch {
+	case provider > 0 && endpoint > 0:
+		if endpoint < provider {
+			return endpoint
+		}
+		return provider
+	case provider > 0:
+		return provider
+	default:
+		return endpoint
+	}
+}
+
 // invoke sends the request, rotating credentials when the vendor says the account
 // is exhausted.
 func (r *Relay) invoke(ctx context.Context, route *Route, req *ir.ChatRequest,
-	session SessionHints) (*http.Response, Credential, *ClientError) {
+	session SessionHints, endpointTimeout time.Duration) (*http.Response, Credential, *ClientError) {
 	quota, hasQuota := route.Adapter.(QuotaPolicy)
 	tried := map[int64]bool{}
 	var lastCredential Credential
+	timeout := effectiveTimeout(route.Provider.TimeoutMs, endpointTimeout)
 
 	for i := 0; i < len(route.Credentials); i++ {
 		credential := route.Credentials[i]
@@ -178,8 +209,8 @@ func (r *Relay) invoke(ctx context.Context, route *Route, req *ir.ChatRequest,
 
 		callCtx := ctx
 		var cancel context.CancelFunc
-		if route.Provider.TimeoutMs > 0 {
-			callCtx, cancel = context.WithTimeout(ctx, time.Duration(route.Provider.TimeoutMs)*time.Millisecond)
+		if timeout > 0 {
+			callCtx, cancel = context.WithTimeout(ctx, timeout)
 		}
 
 		resp, err := route.Adapter.Do(callCtx, &InvokeRequest{
@@ -189,10 +220,10 @@ func (r *Relay) invoke(ctx context.Context, route *Route, req *ir.ChatRequest,
 			Request:    req,
 			Session:    session,
 		})
-		if cancel != nil {
-			cancel()
-		}
 		if err != nil {
+			if cancel != nil {
+				cancel()
+			}
 			if ctx.Err() != nil {
 				return nil, credential, NewClientError(http.StatusBadGateway, "request cancelled")
 			}
@@ -205,12 +236,21 @@ func (r *Relay) invoke(ctx context.Context, route *Route, req *ir.ChatRequest,
 		}
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			// The provider timeout must cover the whole exchange, not just the
+			// response headers: cancelling right after Do returns would make
+			// every body read fail with "context canceled".
+			if cancel != nil {
+				resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel}
+			}
 			r.router.Touch(credential.ID)
 			return resp, credential, nil
 		}
 
 		body := readLimited(resp.Body, 64<<10)
 		_ = resp.Body.Close()
+		if cancel != nil {
+			cancel()
+		}
 
 		verdict := QuotaVerdict{Kind: QuotaNone}
 		if hasQuota {
@@ -248,6 +288,22 @@ func (r *Relay) invoke(ctx context.Context, route *Route, req *ir.ChatRequest,
 		"no upstream credential is currently available")
 }
 
+// cancelOnCloseBody ties a provider timeout to the response body's lifetime.
+// The timeout is released only when the body closes, so a slow answer is still
+// bounded while the bytes are being read.
+type cancelOnCloseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+// Close closes the body and releases the request context.
+func (b *cancelOnCloseBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.once.Do(b.cancel)
+	return err
+}
+
 // stream forwards the answer as the client's protocol expects it.
 func (r *Relay) stream(ctx context.Context, w http.ResponseWriter, in CallRequest,
 	route *Route, credential Credential, resp *http.Response, req *ir.ChatRequest, started time.Time) bool {
@@ -266,14 +322,36 @@ func (r *Relay) stream(ctx context.Context, w http.ResponseWriter, in CallReques
 	})
 
 	var (
-		usage     ir.Usage
-		finish    string
-		ttft      int64
-		decodeErr error
+		usage  ir.Usage
+		finish string
+		ttft   int64
 	)
 
 	ticks, stop := pumpChunks(ctx, decoder)
 	defer stop()
+
+	// One timer for the whole stream: resetting it on every upstream event
+	// measures time since the last event, which is what "idle" means. A fresh
+	// time.After per iteration would leak a timer per chunk.
+	idle := time.NewTimer(limits.StreamIdle)
+	defer idle.Stop()
+
+	// fail reports why the stream stopped, in-band because the status line is
+	// already gone. It never writes the protocol's success terminator: a
+	// truncated or timed-out answer must not look complete.
+	fail := func(status int, failure *ClientError, errorType string) bool {
+		_ = writeInBandError(w, in.Inbound, failure)
+		streamEncoder.Abort()
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		r.record(in, route, credential, Record{
+			TS: started.UnixMilli(), StatusCode: status, Stream: true, TTFTMs: ttft,
+			Usage: usage, FinishReason: finish, ErrorType: errorType,
+			DurationMs: r.now().Sub(started).Milliseconds(),
+		})
+		return false
+	}
 
 	for {
 		select {
@@ -285,44 +363,45 @@ func (r *Relay) stream(ctx context.Context, w http.ResponseWriter, in CallReques
 			})
 			return false
 
-		case <-time.After(limits.StreamIdle):
-			// The upstream went quiet. Abort it, then tell the client in-band so
-			// it does not wait forever on a dead stream.
+		case <-idle.C:
+			// The upstream went quiet. Abort it, then tell the client in-band
+			// so it does not wait forever on a dead stream.
 			r.log.Warn("Upstream stream idle timeout", map[string]any{
 				"provider": route.Provider.Name, "model": route.Model.PublicName,
 				"idleMs": limits.StreamIdle.Milliseconds(),
 			})
-			_ = streamEncoder.Close()
-			r.record(in, route, credential, Record{
-				TS: started.UnixMilli(), StatusCode: 504, Stream: true, TTFTMs: ttft,
-				Usage: usage, ErrorType: "stream_idle_timeout",
-				DurationMs: r.now().Sub(started).Milliseconds(),
-			})
-			return false
+			return fail(http.StatusGatewayTimeout, &ClientError{
+				Status:     http.StatusGatewayTimeout,
+				Type:       "upstream_error",
+				Message:    "upstream stream went idle",
+				RetryAfter: 10,
+			}, "stream_idle_timeout")
 
 		case result, ok := <-ticks:
 			if !ok {
-				// Stream finished. A missing finish reason is a truncation no
-				// matter how much content went out: closing with [DONE] alone
-				// would tell the client the answer was complete.
-				if decodeErr == nil && finish == "" {
-					decodeErr = errors.New("upstream stream ended without a finish reason")
-					r.log.Warn("Upstream stream ended without finish", map[string]any{
+				// The decoder's channel closed. A missing finish reason, or a
+				// finish that names an upstream failure, is not a completed
+				// answer no matter how much content went out.
+				if failure := completionFailure(finish); failure != nil {
+					r.log.Warn("Upstream stream ended without a usable finish", map[string]any{
 						"provider": route.Provider.Name,
 						"model":    route.Model.PublicName,
+						"finish":   finish,
 						"output":   usage.CompletionTokens,
 					})
-					failure := NewClientError(http.StatusBadGateway, decodeErr.Error())
-					_ = writeInBandError(w, in.Inbound, failure)
+					return fail(failure.Status, failure, "upstream_stream_error")
 				}
-				_ = streamEncoder.Close()
-				if decodeErr != nil {
+				if err := streamEncoder.Close(); err != nil {
+					// Writing to a gone client: stop reading upstream.
 					r.record(in, route, credential, Record{
-						TS: started.UnixMilli(), StatusCode: http.StatusBadGateway, Stream: true, TTFTMs: ttft,
-						Usage: usage, FinishReason: finish, ErrorType: "upstream_stream_error",
+						TS: started.UnixMilli(), StatusCode: 200, Stream: true, TTFTMs: ttft,
+						Usage: usage, FinishReason: finish, ClientDisconnected: true,
 						DurationMs: r.now().Sub(started).Milliseconds(),
 					})
 					return false
+				}
+				if flusher, ok := w.(http.Flusher); ok {
+					flusher.Flush()
 				}
 				r.record(in, route, credential, Record{
 					TS: started.UnixMilli(), StatusCode: http.StatusOK, Stream: true, TTFTMs: ttft,
@@ -331,14 +410,30 @@ func (r *Relay) stream(ctx context.Context, w http.ResponseWriter, in CallReques
 				})
 				return true
 			}
+
+			// Any upstream event restarts the idle clock.
+			resetIdle(idle, limits.StreamIdle)
+
 			if result.err != nil {
 				// The decoder's contract: io.EOF is the end of a complete
-				// stream, not a failure. The final record happens when the
-				// channel closes, right after this tick.
+				// stream, not a failure. The closed channel is handled next.
 				if errors.Is(result.err, io.EOF) {
 					continue
 				}
-				decodeErr = result.err
+				if isTimeoutErr(result.err) {
+					// The provider or endpoint deadline fired mid-stream.
+					// Report a timeout, never a completed answer.
+					r.log.Warn("Upstream stream timed out", map[string]any{
+						"provider": route.Provider.Name,
+						"model":    route.Model.PublicName,
+					})
+					return fail(http.StatusGatewayTimeout, &ClientError{
+						Status:     http.StatusGatewayTimeout,
+						Type:       "upstream_error",
+						Message:    "upstream stream timed out",
+						RetryAfter: 10,
+					}, "upstream_stream_timeout")
+				}
 				// Say why in the log: the in-band error reaches the one client
 				// already reading the stream, the log reaches the operator.
 				r.log.Warn("Upstream stream error", map[string]any{
@@ -346,15 +441,9 @@ func (r *Relay) stream(ctx context.Context, w http.ResponseWriter, in CallReques
 					"model":    route.Model.PublicName,
 					"error":    result.err.Error(),
 				})
-				// Render the failure inside the stream: headers are already sent.
-				failure := NewClientError(http.StatusBadGateway, result.err.Error())
-				_ = streamEncoder.Write(&ir.StreamChunk{
-					Kind: ir.ChunkText,
-					Text: "",
-				})
-				_ = writeInBandError(w, in.Inbound, failure)
-				_ = streamEncoder.Close()
-				continue
+				return fail(http.StatusBadGateway,
+					NewClientError(http.StatusBadGateway, result.err.Error()),
+					"upstream_stream_error")
 			}
 
 			chunk := result.chunk
@@ -369,6 +458,17 @@ func (r *Relay) stream(ctx context.Context, w http.ResponseWriter, in CallReques
 				}
 			case ir.ChunkFinish:
 				finish = chunk.FinishReason
+				// A finish that names a failure ends the answer here: emitting
+				// it as a normal finish frame would claim a completion the
+				// upstream never delivered.
+				if failure := completionFailure(finish); failure != nil {
+					r.log.Warn("Upstream stream reported a failed finish", map[string]any{
+						"provider": route.Provider.Name,
+						"model":    route.Model.PublicName,
+						"finish":   finish,
+					})
+					return fail(failure.Status, failure, "upstream_stream_error")
+				}
 			}
 			if chunk.Kind == ir.ChunkDone {
 				continue
@@ -386,17 +486,35 @@ func (r *Relay) stream(ctx context.Context, w http.ResponseWriter, in CallReques
 				flusher.Flush()
 			}
 		}
+	}
+}
 
-		if decodeErr != nil {
-			// The error reached the client; stop the loop.
-			r.record(in, route, credential, Record{
-				TS: started.UnixMilli(), StatusCode: 502, Stream: true, TTFTMs: ttft,
-				Usage: usage, ErrorType: "upstream_stream_error",
-				DurationMs: r.now().Sub(started).Milliseconds(),
-			})
-			return false
+// completionFailure reports the failure a closed stream ended with, or nil when
+// it completed normally. Forwarding the terminator for any other case would
+// tell the client the answer is complete when it is not.
+func completionFailure(finish string) *ClientError {
+	switch finish {
+	case "":
+		return TruncatedStreamError("missing finish reason")
+	case ir.FinishError:
+		return TruncatedStreamError("upstream reported an error")
+	case ir.FinishUpstreamError:
+		return TruncatedStreamError("upstream connection failed")
+	default:
+		return nil
+	}
+}
+
+// resetIdle restarts an idle watchdog, draining a tick that fired but was not
+// observed before the reset.
+func resetIdle(t *time.Timer, d time.Duration) {
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
 		}
 	}
+	t.Reset(d)
 }
 
 type chunkResult struct {
@@ -435,11 +553,42 @@ func pumpChunks(ctx context.Context, decoder StreamDecoder) (<-chan chunkResult,
 	}
 }
 
+// errBodyIdle means an upstream held a buffered response open past the
+// non-streaming watchdog.
+var errBodyIdle = errors.New("upstream response body idle timeout")
+
+// isTimeoutErr reports whether a read failed because a deadline passed, however
+// the transport wrapped it.
+func isTimeoutErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
 // buffered serves a non-streaming client from the upstream body.
 func (r *Relay) buffered(w http.ResponseWriter, in CallRequest, route *Route,
 	credential Credential, resp *http.Response, req *ir.ChatRequest, started time.Time) bool {
 	limits := r.currentLimits()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, limits.MaxBodyBytes))
+	raw, err := readBodyWithIdle(resp.Body, limits.MaxBodyBytes, limits.NonStreamIdle)
+	if errors.Is(err, errBodyIdle) || isTimeoutErr(err) {
+		failure := &ClientError{
+			Status:     http.StatusGatewayTimeout,
+			Type:       "upstream_error",
+			Message:    "upstream response timed out",
+			RetryAfter: 10,
+		}
+		r.writeError(w, in.Inbound, failure)
+		r.record(in, route, credential, Record{
+			TS: started.UnixMilli(), StatusCode: failure.Status, ErrorType: "upstream_read_timeout",
+			DurationMs: r.now().Sub(started).Milliseconds(),
+		})
+		return false
+	}
 	if err != nil {
 		r.writeError(w, in.Inbound, NewClientError(http.StatusBadGateway, "reading upstream response: "+err.Error()))
 		r.record(in, route, credential, Record{
@@ -504,6 +653,34 @@ func (r *Relay) buffered(w http.ResponseWriter, in CallRequest, route *Route,
 		DurationMs:   r.now().Sub(started).Milliseconds(),
 	})
 	return true
+}
+
+// readBodyWithIdle buffers at most limit bytes of an upstream body, aborting
+// when the upstream goes quiet longer than idle. A provider timeout is optional,
+// so without this watchdog a stalled non-streaming response would hang until the
+// client gives up.
+func readBodyWithIdle(body io.Reader, limit int64, idle time.Duration) ([]byte, error) {
+	limited := io.LimitReader(body, limit)
+	if idle <= 0 {
+		return io.ReadAll(limited)
+	}
+	type result struct {
+		raw []byte
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		raw, err := io.ReadAll(limited)
+		done <- result{raw: raw, err: err}
+	}()
+	timer := time.NewTimer(idle)
+	defer timer.Stop()
+	select {
+	case res := <-done:
+		return res.raw, res.err
+	case <-timer.C:
+		return nil, errBodyIdle
+	}
 }
 
 // writeStreamHeaders sets the SSE headers for the client's protocol.

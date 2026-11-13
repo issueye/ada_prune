@@ -744,9 +744,30 @@ P9 首轮（`b9f865d`）交付桌面 UI 打磨与流式可靠性修复后，实�
 
 `go test ./...` 目前 **263 个用例**，`gofmt -l .` 与 `go vet ./...` 干净。
 
+### P10 · 数据面失败语义与超时收口
+
+本轮只修数据面，不新增接口：
+
+| 问题 | 现象 | 修法 |
+| :--- | :--- | :--- |
+| 供应商超时误伤响应体 | `adapter.Do` 返回后立即 `cancel()`，随后读取 `resp.Body` 一律 `context canceled`；只要配置 `timeoutMs > 0`，非流式与流式都失败 | 成功响应体包一层 `cancelOnCloseBody`，超时在响应体 `Close()` 时才释放；非 2xx/错误路径立即释放 |
+| 失败流仍写成功终止符 | 空闲超时、解码错误、缺 finish 的截断路径都调用 `Close()`，客户端收到 `[DONE]` / `message_stop` / `response.completed`，把截断当成完整答案 | `StreamEncoder` 新增 `Abort()`；失败路径写流内错误帧后 `Abort()`，保留已发内容但不写终止符 |
+| `finish_reason=error` 被当成成功 | relay 只把空 finish 视为截断，`error` / `upstream_error` 仍按 200 记账 | `completionFailure()` 统一判定；失败 finish 立即 502 + 流内错误 |
+| 非流式无空闲看门狗 | `Limits.NonStreamIdle` 定义后从未使用；上游发完响应头后挂起会无限等待 | `readBodyWithIdle()` 在缓冲读取上套可重置计时器，超时返回 504，记录 `upstream_read_timeout` |
+
+另外把流式 `select` 里的 `time.After` 换成单个可重置 `Timer`，避免每收到一个 chunk 泄漏一个计时器。
+
+回归手段：`TestProviderTimeoutCoversResponseBody`（`timeoutMs > 0` 的流式/非流式均成功）、
+`TestStreamIdleTimeoutDoesNotFakeCompletion`（504 + 流内错误 + 无 `[DONE]`）、
+`TestNonStreamIdleTimeout`（504 `upstream_read_timeout`）、
+`TestStreamFinishErrorIsUpstreamFailure`（失败 finish → 502）、
+`TestStreamEncoderAbortWithholdsTerminator`（三协议 `Abort()` 后 `Close()` 零写入）。
+
+`go test ./...` 目前 **270 个用例**，`gofmt -l .` 与 `go vet ./...` 干净。
+
 ### 全部里程碑完成
 
-P0–P8 交付完毕。剩余的可选项（不在原计划内）：
+P0–P10 交付完毕。剩余的可选项（不在原计划内）：
 
 - 供应商 / 模型 / 密钥的新建表单（目前只能走 HTTP API）；
 - 托盘图标；

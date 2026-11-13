@@ -7,7 +7,7 @@
 **通用型本地 AI 网关**：一个单可执行文件，一张桌面原生界面，把多种上游 AI 供应商
 统一成一套 OpenAI / Anthropic 兼容端点。
 
-> 状态：**P0–P8 全部完成**——三适配器、数据面、控制面、桌面原生 UI、打包与冒烟测试都已就绪。
+> 状态：**P0–P10 全部完成**——三适配器、数据面、控制面、桌面原生 UI、打包与冒烟测试都已就绪。
 > 设计文档见 [docs/](docs/README.md)，进度见 [docs/07-roadmap.md §8](docs/07-roadmap.md)。
 
 ---
@@ -63,7 +63,7 @@
 | [docs/04-protocol-conversion.md](docs/04-protocol-conversion.md) | 协议规约 IR、三 Codec、9 组转换、流式状态机、CC 事件桥 |
 | [docs/05-api-contract.md](docs/05-api-contract.md) | 控制面与数据面接口契约（唯一事实源） |
 | [docs/06-ui-plan.md](docs/06-ui-plan.md) | 桌面原生 UI 信息架构、页面与交互 |
-| [docs/07-roadmap.md](docs/07-roadmap.md) | 实施路线（P0–P8）、工作量、技术取舍、风险 |
+| [docs/07-roadmap.md](docs/07-roadmap.md) | 实施路线（P0–P10）、工作量、技术取舍、风险 |
 | [AGENTS.md](AGENTS.md) | 开发者 / 智能体协作红线 |
 
 ## 数据面端点
@@ -174,7 +174,7 @@ export ANTHROPIC_AUTH_TOKEN=sk-prune-xxxx
 ```bash
 gofmt -l .        # 必须为空
 go vet ./...      # 必须通过
-go test ./...     # 263 个用例
+go test ./...     # 270 个用例
 ```
 
 ## 许可

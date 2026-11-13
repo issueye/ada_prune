@@ -56,7 +56,8 @@ cmd/prune-desktop (mygo 壳)      cmd/prune-server (headless)
 3. `internal/admin` 不 import `net/http`（控制面 HTTP 适配在 `internal/api/adminhttp`），上下文统一 `context.Context`。
 4. `internal/api` 只做解析/鉴权/序列化，不写业务规则。
 5. 任何包都禁止全局 `var db`；依赖从 `app.New` 显式注入。
-6. 上游出网必须带 `context` 超时；下游断开即取消。
+6. 上游出网必须带 `context` 超时；下游断开即取消。供应商 `timeoutMs` 覆盖**整个交换**
+   （连接、响应头、响应体读取），在响应体 `Close()` 时才释放；流式与非流式另有空闲看门狗。
 
 ## 3. 请求生命周期
 

@@ -44,10 +44,15 @@ type StreamDecoder interface {
 }
 
 // StreamEncoder writes canonical chunks as this protocol's events. Close writes
-// the protocol's terminator.
+// the protocol's success terminator; Abort suppresses it instead.
 type StreamEncoder interface {
 	Write(chunk *ir.StreamChunk) error
+	// Close ends a complete stream and writes the protocol's terminator.
 	Close() error
+	// Abort marks the stream as failed and suppresses the success terminator,
+	// so a truncated answer never looks complete. It is idempotent and safe to
+	// call after Close.
+	Abort()
 }
 
 var (

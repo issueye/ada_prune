@@ -217,7 +217,8 @@ type Codec interface {
 type StreamDecoder interface{ Next() (*ir.StreamChunk, error) }   // io.EOF 结束
 type StreamEncoder interface {
     Write(chunk *ir.StreamChunk) error
-    Close() error     // 写出终止事件（[DONE] / message_stop / response.completed）
+    Close() error     // 完整流：写出终止事件（[DONE] / message_stop / response.completed）
+    Abort()           // 失败流：抑制终止事件，避免客户端把截断当成完成
 }
 
 func Get(p ir.Protocol) (Codec, error)     // 注册表；未注册返回错误
@@ -311,6 +312,8 @@ IR 里的 `Usage` 是**中立且完整**的：`PromptTokens` 是全部输入（�
 - 编码器按**入站协议**的语法写出，绝不泄漏上游专有事件名；
 - 每写一个事件后由上层 `Flush()`；
 - `ChunkDone` 只能出现在最后：编码器 `Close()` 负责写终止标记（`[DONE]` / `response.completed` / `message_stop`）。
+- **失败路径必须调用 `Abort()`，不能调用 `Close()`**：流内错误帧之后若再写终止标记，
+  客户端会把截断/超时当成完整答案。`Abort()` 幂等，保留已经写出的内容，只抑制终止事件。
 
 ### 6.2 openai_chat 编码器
 

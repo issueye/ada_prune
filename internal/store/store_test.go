@@ -526,6 +526,51 @@ func TestEndpointCRUD(t *testing.T) {
 	}
 }
 
+func TestMatchEndpointByPathUsesLongestSegmentPrefix(t *testing.T) {
+	s := newTestStore(t)
+	providerID := mustProvider(t, s, "p1")
+	modelID := mustModel(t, s, providerID, "m1")
+
+	short, err := s.CreateEndpoint(Endpoint{
+		Name: "short", Path: "/cc", InboundProtocol: "anthropic",
+		TargetType: TargetModel, TargetID: modelID, AuthRequired: true, Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateEndpoint short: %v", err)
+	}
+	long, err := s.CreateEndpoint(Endpoint{
+		Name: "long", Path: "/cc/v1", InboundProtocol: "anthropic",
+		TargetType: TargetModel, TargetID: modelID, AuthRequired: true, Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateEndpoint long: %v", err)
+	}
+
+	cases := []struct {
+		path string
+		want int64
+	}{
+		{"/cc", short},
+		{"/cc/v1/messages", long},
+		{"/cc/v1/responses", long},
+		{"/cc/other", short},
+	}
+	for _, c := range cases {
+		got, err := s.MatchEndpointByPath(c.path)
+		if err != nil {
+			t.Fatalf("MatchEndpointByPath(%q): %v", c.path, err)
+		}
+		if got.ID != c.want {
+			t.Errorf("%s matched id %d, want %d", c.path, got.ID, c.want)
+		}
+	}
+
+	// A path that only shares a string prefix is not a segment match.
+	if _, err := s.MatchEndpointByPath("/ccx/v1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("/ccx matched an endpoint: %v", err)
+	}
+}
+
 func TestInMemoryStoreWorks(t *testing.T) {
 	box, _ := secretbox.FromKey(make([]byte, secretbox.KeySize))
 	s := OpenMemory(box)

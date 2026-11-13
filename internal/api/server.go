@@ -22,6 +22,7 @@ import (
 	"github.com/learningdog1/ada_prune/internal/gateway/ir"
 	"github.com/learningdog1/ada_prune/internal/httpkit"
 	"github.com/learningdog1/ada_prune/internal/logging"
+	"github.com/learningdog1/ada_prune/internal/ratelimit"
 	"github.com/learningdog1/ada_prune/internal/store"
 )
 
@@ -44,6 +45,8 @@ type Server struct {
 	o         Options
 	adminHTTP http.Handler
 	inflight  atomic.Int64
+	// endpoints limits custom endpoint traffic per client address.
+	endpoints *ratelimit.Limiter
 }
 
 // New builds the server.
@@ -51,8 +54,12 @@ func New(o Options) *Server {
 	return &Server{
 		o:         o,
 		adminHTTP: adminhttp.NewHTTPHandler(o.Admin, o.AdminToken),
+		endpoints: ratelimit.New(time.Minute),
 	}
 }
+
+// EndpointLimiter exposes the endpoint rate limiter for the periodic sweep.
+func (s *Server) EndpointLimiter() *ratelimit.Limiter { return s.endpoints }
 
 // Inflight returns the number of requests currently admitted.
 func (s *Server) Inflight() int64 { return s.inflight.Load() }

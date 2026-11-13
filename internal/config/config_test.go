@@ -81,7 +81,6 @@ func TestSavePersistsAndReloads(t *testing.T) {
 	}
 	res, err := s.Save(map[string]any{
 		"logLevel":       "debug",
-		"maxInflight":    7,
 		"allowAnonymous": true,
 	})
 	if err != nil {
@@ -97,8 +96,60 @@ func TestSavePersistsAndReloads(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 	got := again.Get()
-	if got.LogLevel != "debug" || got.MaxInflight != 7 || !got.AllowAnonymous {
+	if got.LogLevel != "debug" || !got.AllowAnonymous {
 		t.Fatalf("reloaded snapshot = %+v", got)
+	}
+}
+
+func TestSaveReportsRestartForStartupOnlyKeys(t *testing.T) {
+	s := openTemp(t)
+	res, err := s.Save(map[string]any{
+		"maxBodyMB":          64,
+		"maxInflight":        7,
+		"keepAliveTimeoutMs": 30_000,
+	})
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	for _, key := range []string{"maxBodyMB", "maxInflight", "keepAliveTimeoutMs"} {
+		if !contains(res.RestartRequired, key) {
+			t.Errorf("restartRequired = %v, want %s", res.RestartRequired, key)
+		}
+	}
+
+	// The values are still persisted; only their activation waits for a restart.
+	got := s.Get()
+	if got.MaxBodyMB != 64 || got.MaxInflight != 7 || got.KeepAliveTimeoutMs != 30_000 {
+		t.Fatalf("saved snapshot = %+v", got)
+	}
+}
+
+func TestRefreshIntervalsArePinnedByEnv(t *testing.T) {
+	t.Setenv("PRUNE_MODEL_REFRESH_MS", "1234")
+	t.Setenv("PRUNE_ACCOUNT_USAGE_REFRESH_MS", "2345")
+	t.Setenv("PRUNE_DRIFT_CHECK_MS", "3456")
+
+	s := openTemp(t)
+	got := s.Get()
+	if got.ModelRefreshIntervalMs != 1234 || got.AccountUsageRefreshMs != 2345 || got.DriftCheckIntervalMs != 3456 {
+		t.Fatalf("env overrides not applied: %+v", got)
+	}
+	pinned := s.PinnedKeys()
+	for _, key := range []string{"modelRefreshIntervalMs", "accountUsageRefreshMs", "driftCheckIntervalMs"} {
+		if !contains(pinned, key) {
+			t.Errorf("pinned keys = %v, want %s", pinned, key)
+		}
+	}
+
+	res, err := s.Save(map[string]any{"modelRefreshIntervalMs": 9999})
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if !contains(res.Ignored, "modelRefreshIntervalMs") {
+		t.Fatalf("ignored = %v, want modelRefreshIntervalMs", res.Ignored)
+	}
+	if got := s.Get().ModelRefreshIntervalMs; got != 1234 {
+		t.Fatalf("modelRefreshIntervalMs = %d, want the env value 1234", got)
 	}
 }
 

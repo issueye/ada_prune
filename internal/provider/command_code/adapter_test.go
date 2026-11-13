@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/learningdog1/ada_prune/internal/gateway"
 	"github.com/learningdog1/ada_prune/internal/gateway/ir"
@@ -167,6 +168,16 @@ func TestDoSendsEnvelopeAndHeaders(t *testing.T) {
 
 	a := testAdapter(t)
 	in := sampleInvoke()
+	// Keep the identity announcement out of this test: it would race with the
+	// generation request against the same handler. A future NextReportAt makes
+	// the adapter consider the credential already announced.
+	if err := a.state.Set(in.Provider.ID, gateway.StateFingerprint, reportBook{
+		Credentials: map[int64]credentialReport{
+			in.Credential.ID: {NextReportAt: time.Now().Add(time.Hour).UnixMilli()},
+		},
+	}); err != nil {
+		t.Fatalf("seed report book: %v", err)
+	}
 	in.Provider.BaseURL = srv.URL
 
 	resp, err := a.Do(context.Background(), in)

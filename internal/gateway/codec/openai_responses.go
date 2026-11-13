@@ -823,6 +823,12 @@ func (e *responsesStreamEncoder) Close() error {
 	return e.complete()
 }
 
+// Abort implements StreamEncoder. A failed stream must not end with
+// response.completed: clients read it as "the answer is complete".
+func (e *responsesStreamEncoder) Abort() {
+	e.closed = true
+}
+
 func (e *responsesStreamEncoder) complete() error {
 	if e.closed {
 		return nil

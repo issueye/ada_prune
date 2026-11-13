@@ -3,6 +3,7 @@ package api_test
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -325,9 +326,14 @@ func TestChatCompletionStreamTruncatedStillFails(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d body = %s", resp.StatusCode, body)
 	}
-	// Headers are already sent, so the failure travels inside the stream.
-	if !strings.Contains(string(body), `"error"`) {
+	// Headers are already sent, so the failure travels inside the stream — and
+	// without the success terminator: [DONE] would claim the answer is complete.
+	text := string(body)
+	if !strings.Contains(text, `"error"`) {
 		t.Fatalf("truncated stream carried no in-band error:\n%s", body)
+	}
+	if strings.Contains(text, "[DONE]") {
+		t.Fatalf("truncated stream still claimed completion with [DONE]:\n%s", body)
 	}
 
 	rec := waitRecord(t, s, "/v1/chat/completions")
@@ -733,6 +739,69 @@ func openaiUpstream(t *testing.T) (*httptest.Server, *[]string, *bool) {
 	return srv, &bodies, &dropFinish
 }
 
+// stallingStreamUpstream sends one vendor-native content frame, flushes it and
+// then holds the stream open until the gateway disconnects: the "upstream went
+// quiet mid-answer" case the stream watchdog exists for.
+func stallingStreamUpstream(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		_, _ = io.WriteString(w, `{"type":"text-delta","text":"hello "}`+"\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		// Hold the connection until the gateway aborts the call.
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// stallingBufferedUpstream flushes headers and a partial body, then holds the
+// connection open: a non-streaming response that never finishes arriving.
+func stallingBufferedUpstream(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		_, _ = io.WriteString(w, `{"type":"text-delta","text":"hello "}`+"\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// openaiErrorFinishUpstream streams content and then reports finish_reason
+// "error" after a clean wire terminator: a failed generation that must not be
+// presented as a completion.
+func openaiErrorFinishUpstream(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		lines := []string{
+			`data: {"id":"c1","object":"chat.completion.chunk","model":"gpt-upstream","choices":[{"index":0,"delta":{"content":"half"}}]}`,
+			`data: {"id":"c1","object":"chat.completion.chunk","model":"gpt-upstream","choices":[{"index":0,"delta":{},"finish_reason":"error"}]}`,
+			`data: [DONE]`,
+		}
+		for _, line := range lines {
+			_, _ = io.WriteString(w, line+"\n\n")
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 // newOpenAISocket builds a gateway whose only provider is OpenAI-compatible.
 func newOpenAISocket(t *testing.T, upstreamURL string) socket {
 	t.Helper()
@@ -917,9 +986,14 @@ func TestOpenAIStreamWithoutFinishStillFails(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d body = %s", resp.StatusCode, body)
 	}
-	// The content chunk went out, then the failure — inside the stream.
-	if !strings.Contains(string(body), `"error"`) {
+	// The content chunk went out, then the failure — inside the stream, and
+	// without [DONE]: the answer must not look complete.
+	text := string(body)
+	if !strings.Contains(text, `"error"`) {
 		t.Fatalf("finish-less stream carried no in-band error:\n%s", body)
+	}
+	if strings.Contains(text, "[DONE]") {
+		t.Fatalf("finish-less stream still claimed completion with [DONE]:\n%s", body)
 	}
 
 	rec := waitRecord(t, s, "/v1/chat/completions")
@@ -929,6 +1003,137 @@ func TestOpenAIStreamWithoutFinishStillFails(t *testing.T) {
 	}
 	if rec.FinishReason != "" {
 		t.Fatalf("finish reason = %q, want none", rec.FinishReason)
+	}
+}
+
+// TestProviderTimeoutCoversResponseBody pins the timeout contract: a provider
+// with timeoutMs > 0 must still be able to read the response body. Cancelling
+// the request context as soon as Adapter.Do returned made every such call fail
+// with "context canceled" before a single byte of the answer was read.
+func TestProviderTimeoutCoversResponseBody(t *testing.T) {
+	up := newUpstream(t)
+	s := newSocket(t, up.URL)
+
+	status, body := adminCall(t, s.server, http.MethodPut,
+		fmt.Sprintf("/admin/api/providers/%d", s.providerID), map[string]any{
+			"name": "Command Code", "baseUrl": up.URL, "timeoutMs": 5000,
+		})
+	if status != http.StatusOK {
+		t.Fatalf("update provider: %d %v", status, body)
+	}
+
+	// Non-streaming: the buffered body must remain readable.
+	resp, raw := postJSON(t, s, "/v1/chat/completions", map[string]any{
+		"model":    s.model,
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("non-stream status = %d body = %s", resp.StatusCode, raw)
+	}
+
+	// Streaming: the body keeps arriving after Do has returned.
+	resp, raw = postJSON(t, s, "/v1/chat/completions", map[string]any{
+		"model":    s.model,
+		"stream":   true,
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+	})
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), "data: [DONE]") {
+		t.Fatalf("stream status = %d body = %s", resp.StatusCode, raw)
+	}
+	if strings.Contains(string(raw), `"error"`) {
+		t.Fatalf("stream under a provider timeout carried an in-band error:\n%s", raw)
+	}
+}
+
+// TestStreamIdleTimeoutDoesNotFakeCompletion pins both halves of the idle
+// contract: the client gets an in-band error instead of silence, and the stream
+// carries no success terminator, because the answer is not complete.
+func TestStreamIdleTimeoutDoesNotFakeCompletion(t *testing.T) {
+	up := stallingStreamUpstream(t)
+	s := newSocket(t, up.URL)
+	if _, err := s.app.Cfg.Save(map[string]any{"streamIdleMs": 250}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	resp, body := postJSON(t, s, "/v1/chat/completions", map[string]any{
+		"model":    s.model,
+		"stream":   true,
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.StatusCode, body)
+	}
+	text := string(body)
+	if !strings.Contains(text, "hello ") {
+		t.Fatalf("the content sent before the stall is missing:\n%s", text)
+	}
+	if !strings.Contains(text, `"error"`) {
+		t.Fatalf("idle stream carried no in-band error:\n%s", text)
+	}
+	if strings.Contains(text, "[DONE]") {
+		t.Fatalf("idle stream claimed completion with [DONE]:\n%s", text)
+	}
+
+	rec := waitRecord(t, s, "/v1/chat/completions")
+	if rec.StatusCode != http.StatusGatewayTimeout || rec.ErrorType != "stream_idle_timeout" {
+		t.Fatalf("record = status %d, error %q; want 504 stream_idle_timeout",
+			rec.StatusCode, rec.ErrorType)
+	}
+}
+
+// TestNonStreamIdleTimeout pins the buffered watchdog: an upstream that sends
+// headers and then stalls must be cut off, not waited on forever.
+func TestNonStreamIdleTimeout(t *testing.T) {
+	up := stallingBufferedUpstream(t)
+	s := newSocket(t, up.URL)
+	if _, err := s.app.Cfg.Save(map[string]any{"nonStreamIdleMs": 100}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	resp, body := postJSON(t, s, "/v1/chat/completions", map[string]any{
+		"model":    s.model,
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+	})
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d body = %s; want 504", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"error"`) {
+		t.Fatalf("timeout response carried no error body: %s", body)
+	}
+
+	rec := waitRecord(t, s, "/v1/chat/completions")
+	if rec.StatusCode != http.StatusGatewayTimeout || rec.ErrorType != "upstream_read_timeout" {
+		t.Fatalf("record = status %d, error %q; want 504 upstream_read_timeout",
+			rec.StatusCode, rec.ErrorType)
+	}
+}
+
+// TestStreamFinishErrorIsUpstreamFailure pins the failure vocabulary: a finish
+// reason that names an upstream failure is a 502, not a completed answer.
+func TestStreamFinishErrorIsUpstreamFailure(t *testing.T) {
+	up := openaiErrorFinishUpstream(t)
+	s := newOpenAISocket(t, up.URL)
+
+	resp, body := postJSON(t, s, "/v1/chat/completions", map[string]any{
+		"model":    s.model,
+		"stream":   true,
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.StatusCode, body)
+	}
+	text := string(body)
+	if !strings.Contains(text, `"error"`) {
+		t.Fatalf("failed finish carried no in-band error:\n%s", text)
+	}
+	if strings.Contains(text, "[DONE]") {
+		t.Fatalf("failed finish claimed completion with [DONE]:\n%s", text)
+	}
+
+	rec := waitRecord(t, s, "/v1/chat/completions")
+	if rec.StatusCode != http.StatusBadGateway || rec.ErrorType != "upstream_stream_error" {
+		t.Fatalf("record = status %d, error %q; want 502 upstream_stream_error",
+			rec.StatusCode, rec.ErrorType)
 	}
 }
 

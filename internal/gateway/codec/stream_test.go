@@ -194,6 +194,47 @@ func TestStreamEncodersAreIdempotentOnClose(t *testing.T) {
 	}
 }
 
+// TestStreamEncoderAbortWithholdsTerminator pins the failure contract: an
+// aborted stream keeps the partial content already sent but must never carry
+// the protocol's success terminator, which clients read as "complete".
+func TestStreamEncoderAbortWithholdsTerminator(t *testing.T) {
+	terminators := map[ir.Protocol][]string{
+		ir.ProtoOpenAIChat:      {"[DONE]"},
+		ir.ProtoAnthropic:       {"message_stop"},
+		ir.ProtoOpenAIResponses: {"response.completed"},
+	}
+	for protocol, needles := range terminators {
+		c := MustGet(protocol)
+		var buf bytes.Buffer
+		enc := c.NewStreamEncoder(&buf)
+		for _, chunk := range []*ir.StreamChunk{
+			{Kind: ir.ChunkStart, ID: "resp_abc", Model: "test-model"},
+			{Kind: ir.ChunkText, Text: "partial"},
+		} {
+			if err := enc.Write(chunk); err != nil {
+				t.Fatalf("%s encode: %v", protocol, err)
+			}
+		}
+		enc.Abort()
+		before := buf.String()
+		if err := enc.Close(); err != nil {
+			t.Fatalf("%s close after abort: %v", protocol, err)
+		}
+		after := buf.String()
+		if after != before {
+			t.Errorf("%s wrote bytes on Close after Abort:\nbefore:\n%s\nafter:\n%s", protocol, before, after)
+		}
+		if !strings.Contains(after, "partial") {
+			t.Errorf("%s dropped the content that was already sent:\n%s", protocol, after)
+		}
+		for _, needle := range needles {
+			if strings.Contains(after, needle) {
+				t.Errorf("%s aborted stream still carries %q:\n%s", protocol, needle, after)
+			}
+		}
+	}
+}
+
 func TestChatStreamDecoderHandlesReasoningAndUsageOnlyChunks(t *testing.T) {
 	body := strings.Join([]string{
 		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"reasoning_content":"thinking"},"finish_reason":null}]}`,

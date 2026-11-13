@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/learningdog1/ada_prune/internal/gateway"
 	"github.com/learningdog1/ada_prune/internal/gateway/ir"
@@ -18,65 +19,153 @@ var builtinRoutes = map[string]ir.Protocol{
 	"/v1/messages":         ir.ProtoAnthropic,
 }
 
+// dataPlaneEndpoint is the resolved entry point for one request.
+type dataPlaneEndpoint struct {
+	Protocol     ir.Protocol
+	Path         string
+	AuthRequired bool
+	// TargetType and TargetID pin a custom endpoint to one model or route
+	// model. Builtin endpoints leave both empty and route by the request's
+	// model field.
+	TargetType string
+	TargetID   int64
+	// Timeout bounds one upstream call; zero means the provider setting.
+	Timeout time.Duration
+	// RatePerMin caps requests per client address per minute; zero is unlimited.
+	RatePerMin int
+}
+
 // serveDataPlane authenticates the caller, resolves the endpoint and hands the
 // call to the relay.
 func (s *Server) serveDataPlane(w http.ResponseWriter, r *http.Request) {
-	protocol, authRequired, ok := s.resolveEndpoint(r)
+	endpoint, ok := s.resolveEndpoint(r)
 	if !ok {
 		writeNotFound(w)
 		return
 	}
 
-	key, failure := s.authenticate(r, authRequired)
+	// Rate limiting runs before authentication: an unauthenticated flood should
+	// not reach the key lookup either.
+	if endpoint.RatePerMin > 0 {
+		bucket := endpoint.Path + "|" + clientAddress(r)
+		if allowed, retry := s.endpoints.Allow(bucket, endpoint.RatePerMin); !allowed {
+			writeClientError(w, endpoint.Protocol, &gateway.ClientError{
+				Status:     http.StatusTooManyRequests,
+				Type:       "rate_limit_error",
+				Message:    "endpoint rate limit exceeded",
+				Code:       "rate_limit_exceeded",
+				RetryAfter: retry,
+			})
+			return
+		}
+	}
+
+	key, failure := s.authenticate(r, endpoint.AuthRequired)
 	if failure != nil {
-		writeClientError(w, protocol, failure)
+		writeClientError(w, endpoint.Protocol, failure)
 		return
+	}
+
+	// A custom endpoint pins its target; the body's model field is only a
+	// fallback for the builtin endpoints.
+	modelOverride := ""
+	if endpoint.TargetType != "" {
+		model, failure := s.endpointTarget(endpoint)
+		if failure != nil {
+			writeClientError(w, endpoint.Protocol, failure)
+			return
+		}
+		modelOverride = model
 	}
 
 	body, err := httpkit.ReadJSON(r, s.o.MaxBodyBytes)
 	if err != nil {
 		var tooLarge *httpkit.BodyTooLarge
 		if ok := asTooLarge(err, &tooLarge); ok {
-			writeClientError(w, protocol, &gateway.ClientError{
+			writeClientError(w, endpoint.Protocol, &gateway.ClientError{
 				Status:  http.StatusRequestEntityTooLarge,
 				Type:    "invalid_request_error",
 				Message: "request body is too large",
 			})
 			return
 		}
-		writeClientError(w, protocol, gateway.InvalidRequest("", "cannot read request body"))
+		writeClientError(w, endpoint.Protocol, gateway.InvalidRequest("", "cannot read request body"))
 		return
 	}
 
-	// The model is checked before the relay spends an upstream call.
-	if failure := s.checkModelPermission(r, key, body); failure != nil {
-		writeClientError(w, protocol, failure)
+	// The effective model is checked before the relay spends an upstream call.
+	// For a pinned endpoint that is the target, not whatever the body carries.
+	effectiveModel := modelOverride
+	if effectiveModel == "" {
+		effectiveModel = peekModel(body)
+	}
+	if failure := s.checkModelPermission(key, effectiveModel); failure != nil {
+		writeClientError(w, endpoint.Protocol, failure)
 		return
 	}
 
 	s.o.Relay.Call(r.Context(), gateway.CallRequest{
-		Inbound:     protocol,
-		Body:        body,
-		Endpoint:    r.URL.Path,
-		ClientKeyID: keyID(key),
-		Session:     sessionHints(r),
-		Writer:      w,
+		Inbound:       endpoint.Protocol,
+		Body:          body,
+		Endpoint:      r.URL.Path,
+		ClientKeyID:   keyID(key),
+		Session:       sessionHints(r),
+		ModelOverride: modelOverride,
+		Timeout:       endpoint.Timeout,
+		Writer:        w,
 	})
 }
 
-// resolveEndpoint returns the inbound protocol and whether a key is required.
-func (s *Server) resolveEndpoint(r *http.Request) (ir.Protocol, bool, bool) {
+// resolveEndpoint returns the entry point that serves the request path. Builtin
+// paths win over custom ones; custom endpoints match by longest segment prefix.
+func (s *Server) resolveEndpoint(r *http.Request) (dataPlaneEndpoint, bool) {
 	if protocol, ok := builtinRoutes[r.URL.Path]; ok {
-		return protocol, true, true
+		return dataPlaneEndpoint{Protocol: protocol, Path: r.URL.Path, AuthRequired: true}, true
 	}
 	if s.o.Store == nil {
-		return "", false, false
+		return dataPlaneEndpoint{}, false
 	}
-	endpoint, err := s.o.Store.GetEndpointByPath(r.URL.Path)
+	endpoint, err := s.o.Store.MatchEndpointByPath(r.URL.Path)
 	if err != nil || !endpoint.Enabled {
-		return "", false, false
+		return dataPlaneEndpoint{}, false
 	}
-	return ir.Protocol(endpoint.InboundProtocol), endpoint.AuthRequired, true
+	return dataPlaneEndpoint{
+		Protocol:     ir.Protocol(endpoint.InboundProtocol),
+		Path:         endpoint.Path,
+		AuthRequired: endpoint.AuthRequired,
+		TargetType:   endpoint.TargetType,
+		TargetID:     endpoint.TargetID,
+		Timeout:      time.Duration(endpoint.TimeoutMs) * time.Millisecond,
+		RatePerMin:   endpoint.RatePerMin,
+	}, true
+}
+
+// endpointTarget resolves the public id a custom endpoint pins. A target that
+// vanished after the endpoint was saved is a server-side misconfiguration, not
+// a client error.
+func (s *Server) endpointTarget(endpoint dataPlaneEndpoint) (string, *gateway.ClientError) {
+	unavailable := &gateway.ClientError{
+		Status:     http.StatusServiceUnavailable,
+		Type:       "overloaded_error",
+		Message:    "endpoint target is not available",
+		RetryAfter: 30,
+	}
+	switch endpoint.TargetType {
+	case store.TargetModel:
+		model, err := s.o.Store.GetModel(endpoint.TargetID)
+		if err != nil || model.PublicName == "" {
+			return "", unavailable
+		}
+		return model.PublicName, nil
+	case store.TargetRouteModel:
+		route, err := s.o.Store.GetRouteModel(endpoint.TargetID)
+		if err != nil || route.Name == "" {
+			return "", unavailable
+		}
+		return route.Name, nil
+	default:
+		return "", unavailable
+	}
 }
 
 // authenticate verifies the client key and its network restrictions.
@@ -124,12 +213,12 @@ func (s *Server) authenticate(r *http.Request, required bool) (*store.ClientKey,
 	return key, nil
 }
 
-// checkModelPermission enforces the key's model allowlist.
-func (s *Server) checkModelPermission(r *http.Request, key *store.ClientKey, body []byte) *gateway.ClientError {
+// checkModelPermission enforces the key's model allowlist against the model the
+// request will actually be routed to.
+func (s *Server) checkModelPermission(key *store.ClientKey, model string) *gateway.ClientError {
 	if key == nil || len(key.AllowedModels) == 0 {
 		return nil
 	}
-	model := peekModel(body)
 	if model == "" {
 		// No model in the body: the relay falls back to the configured default and
 		// the allowlist cannot be enforced here. Refusing is safer than guessing.
@@ -205,6 +294,18 @@ func ipAllowed(r *http.Request, allowlist string) bool {
 		}
 	}
 	return false
+}
+
+// clientAddress is the peer address used for per-endpoint rate limiting.
+//
+// Forwarding headers are deliberately ignored: anything a client can write must
+// not become a rate-limit bucket key, or the limit is trivially bypassed.
+func clientAddress(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // peekModel reads just the model field, without decoding the whole body.

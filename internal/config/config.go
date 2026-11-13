@@ -100,6 +100,9 @@ var envKeys = []struct{ Key, Env string }{
 	{"nonStreamIdleMs", "PRUNE_NONSTREAM_IDLE_MS"},
 	{"maxInflight", "PRUNE_MAX_INFLIGHT"},
 	{"keepAliveTimeoutMs", "PRUNE_KEEPALIVE_TIMEOUT_MS"},
+	{"modelRefreshIntervalMs", "PRUNE_MODEL_REFRESH_MS"},
+	{"accountUsageRefreshMs", "PRUNE_ACCOUNT_USAGE_REFRESH_MS"},
+	{"driftCheckIntervalMs", "PRUNE_DRIFT_CHECK_MS"},
 }
 
 // SaveResult reports what Save did with the requested patch.
@@ -207,7 +210,10 @@ func (s *Store) Save(patch map[string]any) (SaveResult, error) {
 		cleaned[k] = v
 	}
 
-	for _, k := range []string{"host", "port"} {
+	// These values are read once when the process starts (the listener, the
+	// request-body cap and the in-flight cap), so a saved change only takes
+	// effect after a restart.
+	for _, k := range []string{"host", "port", "maxBodyMB", "maxInflight", "keepAliveTimeoutMs"} {
 		if v, ok := cleaned[k]; ok && fmt.Sprint(v) != fmt.Sprint(valueOf(s.effective, k)) {
 			result.RestartRequired = append(result.RestartRequired, k)
 		}

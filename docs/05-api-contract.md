@@ -382,6 +382,9 @@ HTTP 状态：`400 / 401 / 403 / 404 / 409 / 500`。
 | PUT | `/admin/api/settings` | 保存补丁（返回 `restartRequired` / `ignored`） |
 | POST | `/admin/api/settings/reset` | 恢复默认（保留密钥） |
 
+> `restartRequired` 覆盖 `host`、`port`、`maxBodyMB`、`maxInflight`、`keepAliveTimeoutMs`：
+> 它们在进程启动时读取，保存后需重启才生效。
+
 ### 2.11 运维
 
 | 方法 | 路径 | 说明 |

@@ -40,6 +40,11 @@ type Adapter struct {
 
 	reportingMu sync.Mutex
 	reporting   map[int64]bool
+
+	// reportBookMu serialises the read-modify-write of the persisted report
+	// book, so two credentials reporting at once cannot overwrite each other's
+	// schedule.
+	reportBookMu sync.Mutex
 }
 
 // New builds the adapter.
@@ -139,7 +144,7 @@ func (a *Adapter) Do(ctx context.Context, in *gateway.InvokeRequest) (*http.Resp
 	}
 
 	// Announce the device identity when it is due. This never blocks the call.
-	a.maybeReport(in.Provider.ID, in.Credential, cfg)
+	a.maybeReport(in.Provider, in.Credential, cfg)
 
 	return a.httpClient(cfg, in.Provider).Do(req)
 }

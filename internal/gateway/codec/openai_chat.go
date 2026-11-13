@@ -855,6 +855,12 @@ func (e *chatStreamEncoder) Close() error {
 	return e.writer.Data("[DONE]")
 }
 
+// Abort implements StreamEncoder. A failed stream must not end with [DONE]:
+// clients read the terminator as "the answer is complete".
+func (e *chatStreamEncoder) Abort() {
+	e.closed = true
+}
+
 func (e *chatStreamEncoder) emit(delta map[string]any, finishReason *string) error {
 	choice := map[string]any{
 		"index":         0,
