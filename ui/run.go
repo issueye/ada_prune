@@ -1,4 +1,4 @@
-package desktop
+package ui
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/ui"
+	gui "github.com/egoist/mygo/ui"
 
 	"github.com/learningdog1/ada_prune/internal/app"
 )
@@ -79,15 +79,15 @@ func Run() error {
 	newWindow := func() *mygo.Window {
 		w := mygo.NewWindow(mygo.WindowOptions{
 			Title:  "AdaPrune",
-			Width:  1280,
-			Height: 860,
+			Width:  1440,
+			Height: 900,
 			// Room for the sidebar and two card columns.
 			MinWidth: 960, MinHeight: 640,
 			// The view draws the title bar itself (see uiState.titleBar).
 			TitleBarStyle:   mygo.TitleBarHiddenInset,
-			TitleBarHeight:  40,
-			BackgroundColor: "#f2f4f7",
-			Content:         ui.View(state.view),
+			TitleBarHeight:  44,
+			BackgroundColor: "#F1EFE8",
+			Content:         gui.View(state.view),
 		})
 		w.OnClose(func(e *mygo.CloseEvent) {
 			// Closing the window hides it: the gateway and the tray keep running.

@@ -1,4 +1,4 @@
-package desktop
+package ui
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/egoist/mygo/ui"
+	gui "github.com/egoist/mygo/ui"
 
 	"github.com/learningdog1/ada_prune/internal/admin"
 )
@@ -427,7 +427,7 @@ func TestModelDiscoveryEmptyOptions(t *testing.T) {
 	}
 
 	// Escape closes the modal.
-	tt.Key(0, ui.KeyEscape)
+	tt.Key(0, gui.KeyEscape)
 	tt.Frame()
 	if state.discoverOpen {
 		t.Fatal("Escape should close the discovery dialog")

@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/learningdog1/ada_prune/internal/desktop"
+	"github.com/learningdog1/ada_prune/ui"
 )
 
 func main() {
-	if err := desktop.Run(); err != nil {
+	if err := ui.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "[prune-desktop] %v\n", err)
 		os.Exit(1)
 	}

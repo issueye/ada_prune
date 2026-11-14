@@ -1,9 +1,9 @@
-package desktop
+package ui
 
 import (
 	"testing"
 
-	"github.com/egoist/mygo/ui"
+	gui "github.com/egoist/mygo/ui"
 
 	"github.com/learningdog1/ada_prune/internal/admin"
 	"github.com/learningdog1/ada_prune/internal/app"
@@ -11,7 +11,7 @@ import (
 
 // newTester boots a real app on a temp directory and gives a headless tester for
 // its view. No network and no window are involved.
-func newTester(t *testing.T) (*uiState, *ui.Tester) {
+func newTester(t *testing.T) (*uiState, *gui.Tester) {
 	t.Helper()
 	a, err := app.New(app.Options{DataDir: t.TempDir()})
 	if err != nil {
@@ -20,7 +20,7 @@ func newTester(t *testing.T) (*uiState, *ui.Tester) {
 	t.Cleanup(a.Close)
 
 	state := newUIState(a)
-	return state, ui.NewTester(state.view, 1280, 860)
+	return state, gui.NewTester(state.view, 1280, 860)
 }
 
 func TestDashboardRenders(t *testing.T) {
@@ -270,5 +270,40 @@ func TestFormattingHelpers(t *testing.T) {
 	}
 	if got := mask("user_0123456789abcdef"); got != "user_012…cdef" {
 		t.Errorf("mask = %q", got)
+	}
+}
+
+func TestTitleBarSearchOpensPalette(t *testing.T) {
+	state, tt := newTester(t)
+	tt.Frame()
+
+	if err := tt.Click("搜索页面、上游或模型"); err != nil {
+		t.Fatalf("click palette doorway: %v", err)
+	}
+	if !state.paletteOpen {
+		t.Fatal("the title bar search should open the command palette")
+	}
+	tt.Frame()
+	if !tt.HasText("Enter 选择") {
+		t.Fatalf("palette body is missing; texts: %v", tt.Texts())
+	}
+}
+
+func TestThemeTogglePersists(t *testing.T) {
+	state, tt := newTester(t)
+	tt.Frame()
+
+	if err := tt.Click("切换到深色"); err != nil {
+		t.Fatalf("click theme toggle: %v", err)
+	}
+	if !state.dark {
+		t.Fatal("theme toggle should select the dark palette")
+	}
+	v, err := state.app.Store.GetSetting(settingTheme)
+	if err != nil {
+		t.Fatalf("read theme setting: %v", err)
+	}
+	if v != "dark" {
+		t.Fatalf("stored theme = %q, want dark", v)
 	}
 }

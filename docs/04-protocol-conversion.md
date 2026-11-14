@@ -249,6 +249,12 @@ func ConvertResponse(up, down ir.Protocol, body []byte) ([]byte, error)
 | `tool_result` | `{role:tool,tool_call_id,content}` | `{type:function_call_output,call_id,output}` | `{type:tool_result,tool_use_id,content,is_error}` |
 | `thinking` | `reasoning_content` | `reasoning.summary` | `{type:thinking,thinking,signature}` |
 
+- **reasoning 别名**：兼容网关可能用 `reasoning`（流式 delta 字符串）或 `reasoning_details[]`
+  （非流式，`reasoning.summary` / `reasoning.text`）代替 `reasoning_content`；三者一律映射到
+  IR `thinking`，认不出就静默丢掉思考。
+- **多 choice 合并**：`n=1` 的响应仍可能被网关拆成多条 `choices[]`（正文一条、工具调用一条，
+  `finish_reason` 只挂在后者）。解码按「一个 turn」合并正文、工具调用与 finish_reason；
+  只读 `choices[0]` 会稳定丢掉半条回复。AdaPrune 不向上游转发 `n`，合并不会误伤多候选。
 - **角色收敛**：IR 只有 `user/assistant/tool`；`system/developer` 进 `System`。
 - **未知角色**降级为 `user` 并记 warning（不要让上游因校验失败拒绝整条请求）。
 - Anthropic 的 `user` 消息可以同时含 `tool_result` 与文本块；转 Chat 时**必须拆成多条**

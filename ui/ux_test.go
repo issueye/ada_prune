@@ -1,11 +1,11 @@
-package desktop
+package ui
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	"github.com/egoist/mygo/ui"
+	gui "github.com/egoist/mygo/ui"
 
 	"github.com/learningdog1/ada_prune/internal/admin"
 	"github.com/learningdog1/ada_prune/internal/store"
@@ -289,7 +289,7 @@ func TestCommandPaletteNavigates(t *testing.T) {
 	}
 	tt.Frame()
 
-	tt.Key(ui.Cmd, ui.KeyK)
+	tt.Key(gui.Cmd, gui.KeyK)
 	tt.Frame()
 	if !state.paletteOpen {
 		t.Fatal("Cmd+K should open the palette")
@@ -319,7 +319,7 @@ func TestShortcutsJumpPages(t *testing.T) {
 	state, tt := newTester(t)
 
 	tt.Frame()
-	tt.Key(ui.Cmd, ui.Key2) // the second nav item: 请求日志
+	tt.Key(gui.Cmd, gui.Key2) // the second nav item: 请求日志
 	tt.Frame()
 	if state.page != "/logs" {
 		t.Fatalf("Cmd+2 page = %q, want /logs", state.page)
@@ -328,7 +328,7 @@ func TestShortcutsJumpPages(t *testing.T) {
 	// With the provider form open, shortcuts must not act underneath it.
 	state.openNewProvider()
 	tt.Frame()
-	tt.Key(ui.Cmd, ui.Key1)
+	tt.Key(gui.Cmd, gui.Key1)
 	tt.Frame()
 	if state.page != "/logs" {
 		t.Fatalf("a shortcut moved under an open dialog: page = %q", state.page)
@@ -491,7 +491,7 @@ func TestSidebarCollapsesAndPersists(t *testing.T) {
 	tt.Frame()
 
 	// The shortcut folds it and the choice persists.
-	tt.Key(ui.Cmd, ui.KeyBackslash)
+	tt.Key(gui.Cmd, gui.KeyBackslash)
 	tt.Frame()
 	if !state.sidebarCollapsed {
 		t.Fatal("Cmd+\\ should fold the sidebar")
@@ -511,7 +511,7 @@ func TestSidebarCollapsesAndPersists(t *testing.T) {
 	// The shortcut must yield while a dialog covers the window.
 	state.openNewProvider()
 	tt.Frame()
-	tt.Key(ui.Cmd, ui.KeyBackslash)
+	tt.Key(gui.Cmd, gui.KeyBackslash)
 	tt.Frame()
 	if !state.sidebarCollapsed {
 		t.Fatal("Cmd+\\ should not act under an open dialog")
@@ -559,5 +559,28 @@ func TestRoutableReasonRendersLocalized(t *testing.T) {
 	}
 	if !tt.HasText("供应商无可用凭据") {
 		t.Fatalf("the localized reason is missing; texts: %v", tt.Texts())
+	}
+}
+
+func TestLogDrawerOnWideWindow(t *testing.T) {
+	state, tt := newTester(t)
+	seedDemoData(t, state)
+	tt.SetSize(1440, 900)
+
+	state.page = "/logs"
+	if err := state.refresh(); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	state.logSel = 0
+	tt.Frame()
+
+	if !tt.HasText("请求详情") {
+		t.Fatalf("wide windows should use the drawer; texts: %v", tt.Texts())
+	}
+	if err := tt.Click("关闭请求详情"); err != nil {
+		t.Fatalf("close drawer: %v", err)
+	}
+	if state.logSel != -1 {
+		t.Fatalf("logSel = %d, want -1 after closing the drawer", state.logSel)
 	}
 }

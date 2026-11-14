@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/learningdog1/ada_prune/internal/gateway/ir"
@@ -39,9 +40,23 @@ type chatMessage struct {
 	Role             string          `json:"role"`
 	Content          json.RawMessage `json:"content"`
 	ReasoningContent string          `json:"reasoning_content"`
-	ToolCalls        []chatToolCall  `json:"tool_calls"`
-	ToolCallID       string          `json:"tool_call_id"`
-	Name             string          `json:"name"`
+	// Reasoning and ReasoningDetails carry the same reasoning as
+	// ReasoningContent on compatible gateways that follow the OpenRouter
+	// shape: a bare string on stream deltas, a parts array on messages.
+	Reasoning        string              `json:"reasoning"`
+	ReasoningDetails []chatReasoningPart `json:"reasoning_details"`
+	ToolCalls        []chatToolCall      `json:"tool_calls"`
+	ToolCallID       string              `json:"tool_call_id"`
+	Name             string              `json:"name"`
+}
+
+// chatReasoningPart is one entry of an OpenRouter-style reasoning_details
+// list. Summarised reasoning arrives as "reasoning.summary" plus a summary
+// string; verbatim reasoning arrives as "reasoning.text" plus a text string.
+type chatReasoningPart struct {
+	Type    string `json:"type"`
+	Text    string `json:"text"`
+	Summary string `json:"summary"`
 }
 
 type chatToolCall struct {
@@ -127,10 +142,10 @@ func (openAIChatCodec) DecodeRequest(body []byte) (*ir.ChatRequest, error) {
 				return nil, err
 			}
 			msg.Blocks = blocks
-			if m.ReasoningContent != "" {
+			if thinking := chatReasoning(m); thinking != "" {
 				msg.Blocks = append(msg.Blocks, ir.Block{
 					Type:     ir.BlockThinking,
-					Thinking: &ir.ThinkingBlock{Text: m.ReasoningContent},
+					Thinking: &ir.ThinkingBlock{Text: thinking},
 				})
 			}
 			for _, tc := range m.ToolCalls {
@@ -209,6 +224,29 @@ func decodeChatContent(raw json.RawMessage) ([]ir.Block, error) {
 		}
 	}
 	return blocks, nil
+}
+
+// chatReasoning joins every reasoning field a message may carry. DeepSeek uses
+// reasoning_content; OpenRouter-style gateways use a bare reasoning string on
+// deltas and a reasoning_details parts list on non-streaming messages. All three
+// mean "thinking", and ignoring any of them drops the reasoning silently.
+func chatReasoning(m chatMessage) string {
+	switch {
+	case m.ReasoningContent != "":
+		return m.ReasoningContent
+	case m.Reasoning != "":
+		return m.Reasoning
+	}
+	var out strings.Builder
+	for _, part := range m.ReasoningDetails {
+		switch {
+		case part.Text != "":
+			out.WriteString(part.Text)
+		case part.Summary != "":
+			out.WriteString(part.Summary)
+		}
+	}
+	return out.String()
 }
 
 // imageFromURL splits a data URI into inline bytes, otherwise keeps the URL.
@@ -462,19 +500,23 @@ func (openAIChatCodec) DecodeResponse(body []byte) (*ir.ChatResponse, error) {
 		return nil, decodeError(ir.ProtoOpenAIChat, "invalid JSON", err)
 	}
 	resp := &ir.ChatResponse{ID: raw.ID, Model: raw.Model}
-	if len(raw.Choices) > 0 {
-		choice := raw.Choices[0]
+	// n is 1 unless the client asks otherwise, but compatible gateways sometimes
+	// split one assistant turn across several choices: the prose in one choice,
+	// the tool calls in another, and the finish reason only on the latter. The
+	// IR models a turn rather than a choice, so merge every choice; keeping only
+	// the first would silently drop half of the answer.
+	for _, choice := range raw.Choices {
+		if thinking := chatReasoning(choice.Message); thinking != "" {
+			resp.Blocks = append(resp.Blocks, ir.Block{
+				Type:     ir.BlockThinking,
+				Thinking: &ir.ThinkingBlock{Text: thinking},
+			})
+		}
 		blocks, err := decodeChatContent(choice.Message.Content)
 		if err != nil {
 			return nil, err
 		}
-		resp.Blocks = blocks
-		if choice.Message.ReasoningContent != "" {
-			resp.Blocks = append(resp.Blocks, ir.Block{
-				Type:     ir.BlockThinking,
-				Thinking: &ir.ThinkingBlock{Text: choice.Message.ReasoningContent},
-			})
-		}
+		resp.Blocks = append(resp.Blocks, blocks...)
 		for _, tc := range choice.Message.ToolCalls {
 			resp.ToolCalls = append(resp.ToolCalls, ir.ToolCall{
 				ID:        tc.ID,
@@ -482,7 +524,9 @@ func (openAIChatCodec) DecodeResponse(body []byte) (*ir.ChatResponse, error) {
 				Arguments: argumentsString(tc.Function.Arguments),
 			})
 		}
-		if choice.FinishReason != nil {
+		// A split turn leaves the prose choice without a finish reason, so the
+		// turn's reason is the first non-empty one across the choices.
+		if choice.FinishReason != nil && *choice.FinishReason != "" && resp.FinishReason == "" {
 			resp.FinishReason = ir.NormalizeFinish(*choice.FinishReason)
 		}
 	}
@@ -647,34 +691,39 @@ func (d *chatStreamDecoder) Next() (*ir.StreamChunk, error) {
 		if len(raw.Choices) == 0 {
 			continue
 		}
-		choice := raw.Choices[0]
-		if text, ok := rawString(choice.Delta.Content); ok && text != "" {
-			d.queue = append(d.queue, &ir.StreamChunk{Kind: ir.ChunkText, Text: text})
-		}
-		if choice.Delta.ReasoningContent != "" {
-			d.queue = append(d.queue, &ir.StreamChunk{Kind: ir.ChunkThinking, Text: choice.Delta.ReasoningContent})
-		}
-		if len(choice.Delta.ToolCalls) > 0 {
-			for _, tc := range choice.Delta.ToolCalls {
+		// Every choice is consumed, not just the first: a compatible gateway
+		// may stream one assistant turn across several choices, and dropping
+		// the others would drop their tool calls or prose.
+		for _, choice := range raw.Choices {
+			// Reasoning precedes the answer it belongs to, so it is queued first.
+			if thinking := chatReasoning(choice.Delta); thinking != "" {
+				d.queue = append(d.queue, &ir.StreamChunk{Kind: ir.ChunkThinking, Text: thinking})
+			}
+			if text, ok := rawString(choice.Delta.Content); ok && text != "" {
+				d.queue = append(d.queue, &ir.StreamChunk{Kind: ir.ChunkText, Text: text})
+			}
+			if len(choice.Delta.ToolCalls) > 0 {
+				for _, tc := range choice.Delta.ToolCalls {
+					d.queue = append(d.queue, &ir.StreamChunk{
+						Kind: ir.ChunkToolCall,
+						// The tool call's own index, not the choice's: clients
+						// reassemble argument fragments per call, and a delta may
+						// carry fragments of several parallel calls.
+						Index:      tc.Index,
+						ToolCallID: tc.ID,
+						ToolName:   tc.Function.Name,
+						ArgsDelta:  argumentsString(tc.Function.Arguments),
+					})
+				}
+			}
+			// A finish reason may share a frame with the last delta, so it is queued
+			// after the content instead of replacing it.
+			if choice.FinishReason != nil && *choice.FinishReason != "" {
 				d.queue = append(d.queue, &ir.StreamChunk{
-					Kind: ir.ChunkToolCall,
-					// The tool call's own index, not the choice's: clients
-					// reassemble argument fragments per call, and a delta may
-					// carry fragments of several parallel calls.
-					Index:      tc.Index,
-					ToolCallID: tc.ID,
-					ToolName:   tc.Function.Name,
-					ArgsDelta:  argumentsString(tc.Function.Arguments),
+					Kind:         ir.ChunkFinish,
+					FinishReason: ir.NormalizeFinish(*choice.FinishReason),
 				})
 			}
-		}
-		// A finish reason may share a frame with the last delta, so it is queued
-		// after the content instead of replacing it.
-		if choice.FinishReason != nil && *choice.FinishReason != "" {
-			d.queue = append(d.queue, &ir.StreamChunk{
-				Kind:         ir.ChunkFinish,
-				FinishReason: ir.NormalizeFinish(*choice.FinishReason),
-			})
 		}
 	}
 }
