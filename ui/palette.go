@@ -1,9 +1,9 @@
-package desktop
+package ui
 
 import (
 	"strings"
 
-	"github.com/egoist/mygo/ui"
+	gui "github.com/egoist/mygo/ui"
 )
 
 // paletteItem is one entry of the command palette: what it says, where it
@@ -11,7 +11,7 @@ import (
 type paletteItem struct {
 	Label  string
 	Hint   string
-	Icon   func() *ui.SVG
+	Icon   func() *gui.SVG
 	Action func()
 }
 
@@ -19,17 +19,17 @@ type paletteItem struct {
 // and the few actions that make sense from anywhere. It is the keyboard answer
 // to the sidebar, not a second navigation: entries always lead somewhere the
 // sidebar could, so it can never open a page the user cannot reach otherwise.
-func (s *uiState) paletteDialog(c *ui.Context) {
+func (s *uiState) paletteDialog(c *gui.Context) {
 	t := c.Theme()
-	ui.Column(c).Width(520).Gap(spM).Children(func() {
+	gui.Column(c).Width(520).Gap(spM).Children(func() {
 		// The field takes the focus when the palette opens, so typing filters
 		// immediately; Escape closes the palette (the modal clears the flag).
-		ui.TextInput(c, &s.paletteQuery).FillWidth().AutoFocus().
+		gui.TextInput(c, &s.paletteQuery).FillWidth().AutoFocus().
 			Placeholder("搜索页面或动作…")
 
 		items := s.paletteItems()
 		if len(items) == 0 {
-			ui.Text(c, "没有匹配的页面或动作").FontSize(11).TextColor(t.TextMuted)
+			gui.Text(c, "没有匹配的页面或动作").FontSize(11).TextColor(t.TextMuted)
 			return
 		}
 
@@ -39,14 +39,14 @@ func (s *uiState) paletteDialog(c *ui.Context) {
 		if listHeight > 320 {
 			listHeight = 320
 		}
-		ui.Scroll(c).Height(listHeight).FillWidth().Children(func() {
-			ui.Column(c).FillWidth().Gap(2).Children(func() {
+		gui.Scroll(c).Height(listHeight).FillWidth().Children(func() {
+			gui.Column(c).FillWidth().Gap(2).Children(func() {
 				for _, item := range items {
 					s.paletteRow(c, item)
 				}
 			})
 		})
-		ui.Text(c, "Enter 选择 · Esc 关闭 · Cmd+1..9 直达页面").FontSize(10).
+		gui.Text(c, "Enter 选择 · Esc 关闭 · Cmd+1..9 直达页面").FontSize(10).
 			TextColor(t.TextMuted)
 	})
 }
@@ -55,21 +55,21 @@ func (s *uiState) paletteDialog(c *ui.Context) {
 // sidebar's for pages and the action buttons' for actions, so an entry reads
 // the same wherever it appears. The label carries the verb, the hint where it
 // lives, so two similar entries stay distinguishable.
-func (s *uiState) paletteRow(c *ui.Context, item paletteItem) {
+func (s *uiState) paletteRow(c *gui.Context, item paletteItem) {
 	t := c.Theme()
-	row := ui.Row(c).FillWidth().Padding(6, 10).Radius(7).Gap(spS).
-		AlignItems(ui.Center).Cursor(ui.CursorPointer)
+	row := gui.Row(c).FillWidth().Padding(6, 10).Radius(7).Gap(spS).
+		AlignItems(gui.Center).Cursor(gui.CursorPointer)
 	if row.Hovered() {
 		row.Background(t.SurfaceHover)
 	}
 	row.Children(func() {
 		if item.Icon != nil {
-			ui.Icon(c, item.Icon()).FontSize(14).TextColor(t.TextMuted)
+			gui.Icon(c, item.Icon()).FontSize(14).TextColor(t.TextMuted)
 		}
-		ui.Text(c, item.Label).FontSize(12).SingleLine()
-		ui.Spacer(c)
+		gui.Text(c, item.Label).FontSize(12).SingleLine()
+		gui.Spacer(c)
 		if item.Hint != "" {
-			ui.Text(c, item.Hint).FontSize(10).TextColor(t.TextMuted).SingleLine()
+			gui.Text(c, item.Hint).FontSize(10).TextColor(t.TextMuted).SingleLine()
 		}
 	})
 	if row.Clicked() {
@@ -87,7 +87,7 @@ func (s *uiState) paletteRow(c *ui.Context, item paletteItem) {
 func (s *uiState) paletteItems() []paletteItem {
 	query := strings.ToLower(strings.TrimSpace(s.paletteQuery))
 	out := make([]paletteItem, 0, len(navGroups)+4)
-	add := func(label, hint string, icon func() *ui.SVG, action func()) {
+	add := func(label, hint string, icon func() *gui.SVG, action func()) {
 		if query != "" &&
 			!strings.Contains(strings.ToLower(label), query) &&
 			!strings.Contains(strings.ToLower(hint), query) {

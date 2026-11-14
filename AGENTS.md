@@ -74,7 +74,7 @@
 | `internal/admin` | 控制面业务 | 不 import `net/http`（HTTP 适配在 `internal/api/adminhttp`） |
 | `internal/api` | HTTP 适配 | 只解析/鉴权/序列化，不写业务规则 |
 | `internal/api/adminhttp` | 控制面路由 | 只做参数解析与响应序列化，业务全在 `admin.Service` |
-| `internal/desktop` | 原生 UI | 只调 `admin.Service` 与 `app`，不直接碰 store |
+| `ui` | 原生 UI | 只调 `admin.Service` 与 `app`，不直接碰 store |
 | `docs/` | 设计 | 改契约必须改文档 |
 | `testdata/golden/` | 金标准 | 变更必须在提交说明里写清原因 |
 

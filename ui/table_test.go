@@ -1,10 +1,10 @@
-package desktop
+package ui
 
 import (
 	"testing"
 	"time"
 
-	"github.com/egoist/mygo/ui"
+	gui "github.com/egoist/mygo/ui"
 )
 
 // TestTableRowActionsDropdown pins the interaction model of the gateway pages:
@@ -92,16 +92,16 @@ func TestTableRowActionsDropdown(t *testing.T) {
 // the accent color, so its text and chips must turn to AccentText rather than
 // stay Text/TextMuted (which is unreadable on the saturated fill).
 func TestSelectedRowPalette(t *testing.T) {
-	var onPrimary, onSecondary, offPrimary, offSecondary, fg, bg ui.Color
-	tt := ui.NewTester(func(c *ui.Context) {
+	var onPrimary, onSecondary, offPrimary, offSecondary, fg, bg gui.Color
+	tt := gui.NewTester(func(c *gui.Context) {
 		onPrimary, onSecondary = rowColors(c, true)
 		offPrimary, offSecondary = rowColors(c, false)
 		fg, bg = pillTone(c, true, c.Theme().Success)
-		ui.Text(c, "palette")
+		gui.Text(c, "palette")
 	}, 100, 100)
 	tt.Frame()
 
-	want := ui.LightTheme()
+	want := gui.LightTheme()
 	if onPrimary != want.AccentText || onSecondary != want.AccentText {
 		t.Fatalf("selected row colors = %v/%v, want AccentText %v", onPrimary, onSecondary, want.AccentText)
 	}

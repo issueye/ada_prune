@@ -5,9 +5,10 @@
 | 文档编号 | DOC-08 |
 | 版本 | v1.0 |
 | 评审日期 | 2026-11-07 |
-| 评审对象 | `internal/desktop/`（mygo 原生桌面端） |
+| 评审对象 | `ui/`（mygo 原生桌面端） |
 | 对照文档 | [06 UI 计划](06-ui-plan.md) · [01 需求](01-requirements.md) |
 | 评审方式 | 代码走查 + `ui.NewTester` 无窗口渲染（`RENDER_UI=1`，截图见 `build/ui/`） |
+| 路径说明 | 本文写于重构前；行号对应当时的 `internal/desktop`，现在这些单元位于 `ui/` 并按功能拆分 |
 
 ---
 
@@ -369,10 +370,10 @@ Token 趋势逐日显示输入/输出。
 gofmt -l .
 go vet ./...
 go test ./...
-RENDER_UI=1 go test ./internal/desktop -run TestRenderPages   # 更新 build/ui/*.png
+RENDER_UI=1 go test ./ui -run TestRenderPages   # 更新 build/ui/*.png
 ```
 
-新增/更新的测试（`internal/desktop`）：
+新增/更新的测试（`ui`）：
 
 - 确认弹窗：`TestDeleteProviderRequiresConfirmation`（打开 → 取消不删 → 确认删除），
   菜单路径回归 `TestModelCardDeletesModel` / `TestRouteModelEditAndDelete`；
@@ -390,7 +391,7 @@ RENDER_UI=1 go test ./internal/desktop -run TestRenderPages   # 更新 build/ui/
 
 ## 9. 评审基线截图
 
-`RENDER_UI=1 go test ./internal/desktop -run TestRenderPages` 生成：
+`RENDER_UI=1 go test ./ui -run TestRenderPages` 生成：
 
 - `build/ui/dashboard.png`（总览 + 24h 图表 + 健康度）
 - `build/ui/logs.png`（请求日志）

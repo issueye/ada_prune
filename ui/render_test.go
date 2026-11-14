@@ -1,4 +1,4 @@
-package desktop
+package ui
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/egoist/mygo/ui"
+	gui "github.com/egoist/mygo/ui"
 
 	"github.com/learningdog1/ada_prune/internal/admin"
 	"github.com/learningdog1/ada_prune/internal/gateway"
@@ -28,7 +28,7 @@ func TestRenderPages(t *testing.T) {
 	state, tt := newTester(t)
 	// The desktop window hides its title bar, so the controls take room on the
 	// right (140 DIPs for three buttons on Windows).
-	tt.SetTitleBar(ui.TitleBar{Height: 40, Left: 0, Right: 140})
+	tt.SetTitleBar(gui.TitleBar{Height: 40, Left: 0, Right: 140})
 
 	seedDemoData(t, state)
 	// One route model so the aggregation page has a card to lay out.
@@ -55,7 +55,7 @@ func TestRenderPages(t *testing.T) {
 		t.Fatalf("seed reverse proxy provider: %v", err)
 	}
 
-	out := filepath.Join("..", "..", "build", "ui")
+	out := filepath.Join("..", "build", "ui")
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		t.Fatalf("create output: %v", err)
 	}
@@ -91,6 +91,25 @@ func TestRenderPages(t *testing.T) {
 		_ = file.Close()
 	}
 	t.Logf("rendered %d pages to %s", len(pages), out)
+	// Selected log row: the wide-window drawer beside the table.
+	state.page = "/logs"
+	if err := state.refresh(); err != nil {
+		t.Fatalf("refresh logs detail: %v", err)
+	}
+	state.logSel = 0
+	tt.SetSize(1440, 900)
+	tt.Frame()
+	writePNG(t, tt, filepath.Join(out, "logs-detail.png"))
+	tt.SetSize(1280, 860)
+	state.logSel = -1
+
+	// The same dashboard under the "值班" night palette: one structure, only
+	// the tokens change.
+	state.page = "/"
+	state.dark = true
+	tt.Frame()
+	writePNG(t, tt, filepath.Join(out, "dashboard-night.png"))
+	state.dark = false
 
 	// The settings page's left/right layout: render the watchdog section too.
 	state.page = "/settings"
@@ -118,7 +137,7 @@ func TestRenderPages(t *testing.T) {
 	}
 	tt.Frame()
 	writePNG(t, tt, filepath.Join(out, "providers-actions.png"))
-	tt.Key(0, ui.KeyEscape)
+	tt.Key(0, gui.KeyEscape)
 	tt.Frame()
 
 	state.openNewProvider()
@@ -225,7 +244,7 @@ func TestRenderPages(t *testing.T) {
 }
 
 // writePNG saves the current frame.
-func writePNG(t *testing.T, tt *ui.Tester, path string) {
+func writePNG(t *testing.T, tt *gui.Tester, path string) {
 	t.Helper()
 	file, err := os.Create(path)
 	if err != nil {

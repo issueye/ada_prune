@@ -396,18 +396,18 @@ POST /v1/responses (Responses 入站, openai_responses 模型)
 
 | 交付项 | 落点 | 验证 |
 | :--- | :--- | :--- |
-| 应用壳 | `internal/desktop/desktop.go`、`view.go` | 自绘标题栏、分组侧栏、页头、能力驱动 |
-| 总览 | `pages_monitor.go` | 6 个 KPI、24 小时柱状图、服务信息 |
-| 请求日志 | 同上 | 端点/状态过滤、状态着色、TTFT 与费用列 |
-| 用量统计 | 同上 | 四种分组（天/模型/供应商/密钥）+ 汇总块 |
-| 供应商 | `pages_gateway.go` | 列表、探活、启停、删除、适配器能力详情 |
-| 模型 | 同上 | 搜索、可路由原因、启停 |
-| 凭据 | 同上 | 掩码展示、状态药丸、固定、重置、删除、批量刷新额度 |
-| 客户端密钥 | 同上 | 创建（明文只显示一次）、轮换、删除、额度列 |
-| 端点 | 同上 | 内置 + 自定义、协议与鉴权标记 |
-| 设置 | `pages_system.go` | 服务/协议/日志分组、env 钉住提示、保存 |
-| 关于 | 同上 | 版本、数据目录、协程数、已注册适配器 |
-| 无窗口测试 | `view_test.go` | 7 组用例：渲染、导航、空状态、env 提示、适配器列表 |
+| 应用壳 | `ui/run.go`、`ui/shell.go`、`ui/chrome.go`、`ui/sidebar.go` | 自绘标题栏、分组侧栏、页头、能力驱动 |
+| 总览 | `ui/dashboard.go` | 5 格指标带、24 小时柱状图、服务信息 |
+| 请求日志 | `ui/logs.go`、`ui/state_logs.go` | 端点/状态过滤、状态着色、TTFT 与费用列 |
+| 用量统计 | `ui/usage.go`、`ui/state_usage.go` | 四种分组（天/模型/供应商/密钥）+ 汇总块 |
+| 供应商 | `ui/providers.go`、`ui/provider_form.go` | 列表、探活、启停、删除、适配器能力详情 |
+| 模型 | `ui/models.go`、`ui/state_models.go` | 搜索、可路由原因、启停 |
+| 凭据 | `ui/credentials.go`、`ui/state_keys.go` | 掩码展示、状态药丸、固定、重置、删除、批量刷新额度 |
+| 客户端密钥 | `ui/keys.go`、`ui/state_keys.go` | 创建（明文只显示一次）、轮换、删除、额度列 |
+| 端点 | `ui/endpoints.go` | 内置 + 自定义、协议与鉴权标记 |
+| 设置 | `ui/settings.go`、`ui/state_settings.go` | 服务/协议/日志分组、env 钉住提示、保存 |
+| 关于 | `ui/about.go` | 版本、数据目录、协程数、已注册适配器 |
+| 无窗口测试 | `ui/*_test.go` | 7 组用例：渲染、导航、空状态、env 提示、适配器列表 |
 
 实现要点：
 
@@ -495,7 +495,7 @@ Building AdaPrune 0.1.0 (dev) for windows/amd64
 
 | 改动 | 说明 |
 | :--- | :--- |
-| 托盘图标 | `internal/desktop/tray.png`（32×32，由 `tools/logo/gen.py` 的图标缩放）；左键唤出窗口，菜单 打开管理界面 / 复制服务地址 / 退出；托盘不可用时只提示，不影响启动 |
+| 托盘图标 | `ui/tray.png`（32×32，由 `tools/logo/gen.py` 的图标缩放）；左键唤出窗口，菜单 打开管理界面 / 复制服务地址 / 退出；托盘不可用时只提示，不影响启动 |
 | 供应商改为弹窗 | 用 `ui.Modal` 打开，Esc / 点遮罩关闭；从任何页面都能打开，与背后的列表不再混淆 |
 | 类型 → 协议 | 下拉只有 `Anthropic Messages` / `OpenAI Chat` / `OpenAI Responses`；适配器由协议推导 |
 | 状态信息移到页脚 | 标题栏只留品牌与版本；「运行中 / 服务地址 / 数据目录 / 在途 / 运行时长 / 存储 / 适配器数」全部进页脚 |
